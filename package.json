@@ -1,0 +1,6 @@
+{
+  "name": "football-prediction-app",
+  "version": "1.0.0",
+  "description": "Application de prédiction football",
+  "type": "module"
+}
