@@ -87,7 +87,7 @@
                 try {
                     // Appel direct à l'API Football
                     const response = await fetch(
-                        `https://v3.football.api-sports.io/fixtures?league=${leagueId}&season=2026&next=10`,
+                        `https://v3.football.api-sports.io/fixtures?league=${leagueId}&season=2025&next=10`,
                         {
                             headers: {
                                 'x-apisports-key': '7a191233823be5517a7135efde992711'
@@ -134,10 +134,10 @@
                 try {
                     // Récupérer les stats des deux équipes
                     const [homeStatsRes, awayStatsRes, h2hRes] = await Promise.all([
-                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2026&team=${match.homeTeamId}`, {
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.homeTeamId}`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
-                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2026&team=${match.awayTeamId}`, {
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.awayTeamId}`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
                         fetch(`https://v3.football.api-sports.io/fixtures/headtohead?h2h=${match.homeTeamId}-${match.awayTeamId}&last=5`, {
