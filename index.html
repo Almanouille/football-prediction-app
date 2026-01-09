@@ -176,12 +176,12 @@
                     const awayForm = awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
                     
                     const formDiff = homeForm - awayForm;
-                    homeScore += formDiff * 2;
-                    awayScore -= formDiff * 2;
+                    homeScore += formDiff * 1.5;
+                    awayScore -= formDiff * 1.5;
                 }
 
                 // Avantage domicile
-                homeScore += 10;
+                homeScore += 8;
 
                 // Statistiques de buts
                 if (homeStats.goals && awayStats.goals) {
@@ -190,8 +190,8 @@
                     const homeDefAvg = parseFloat(homeStats.goals.against?.average?.home || 0);
                     const awayDefAvg = parseFloat(awayStats.goals.against?.average?.away || 0);
 
-                    homeScore += (homeGoalsAvg - awayDefAvg) * 6;
-                    awayScore += (awayGoalsAvg - homeDefAvg) * 6;
+                    homeScore += (homeGoalsAvg - awayDefAvg) * 5;
+                    awayScore += (awayGoalsAvg - homeDefAvg) * 5;
                 }
 
                 // Historique H2H
@@ -201,9 +201,13 @@
                         (m.teams.away.id === match.homeTeamId && m.teams.away.winner)
                     ).length;
                     
-                    homeScore += homeWins * 2.5;
-                    awayScore += (h2h.length - homeWins) * 2.5;
+                    homeScore += homeWins * 2;
+                    awayScore += (h2h.length - homeWins) * 2;
                 }
+
+                // S'assurer que les scores sont positifs
+                homeScore = Math.max(10, homeScore);
+                awayScore = Math.max(10, awayScore);
 
                 // Calcul des probabilités brutes
                 const total = homeScore + awayScore;
@@ -212,21 +216,41 @@
                 
                 // Calculer la probabilité de nul basée sur l'équilibre
                 const balance = Math.abs(homeRatio - awayRatio);
-                const drawProb = Math.round((1 - balance) * 30); // Plus c'est équilibré, plus le nul est probable
+                let drawProb = Math.round((1 - balance) * 25); // Plus c'est équilibré, plus le nul est probable
+                drawProb = Math.max(5, Math.min(30, drawProb)); // Entre 5% et 30%
                 
                 // Distribuer le reste entre domicile et extérieur
                 const remaining = 100 - drawProb;
                 let homeWinProb = Math.round(homeRatio * remaining);
                 let awayWinProb = remaining - homeWinProb;
                 
+                // Garantir un minimum de 1% pour chaque issue
+                homeWinProb = Math.max(1, homeWinProb);
+                awayWinProb = Math.max(1, awayWinProb);
+                drawProb = Math.max(1, drawProb);
+                
                 // Ajustement final pour garantir exactement 100%
-                const currentTotal = homeWinProb + drawProb + awayWinProb;
+                let currentTotal = homeWinProb + drawProb + awayWinProb;
+                
+                // Si on dépasse 100%, réduire proportionnellement
+                if (currentTotal > 100) {
+                    const factor = 100 / currentTotal;
+                    homeWinProb = Math.round(homeWinProb * factor);
+                    awayWinProb = Math.round(awayWinProb * factor);
+                    drawProb = Math.round(drawProb * factor);
+                }
+                
+                // Dernier ajustement pour tomber pile à 100%
+                currentTotal = homeWinProb + drawProb + awayWinProb;
                 if (currentTotal !== 100) {
                     const diff = 100 - currentTotal;
-                    if (homeWinProb > awayWinProb) {
+                    // Ajouter la différence au plus grand
+                    if (homeWinProb >= awayWinProb && homeWinProb >= drawProb) {
                         homeWinProb += diff;
-                    } else {
+                    } else if (awayWinProb >= homeWinProb && awayWinProb >= drawProb) {
                         awayWinProb += diff;
+                    } else {
+                        drawProb += diff;
                     }
                 }
 
