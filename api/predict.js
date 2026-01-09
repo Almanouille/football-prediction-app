@@ -2,7 +2,7 @@
 const API_KEY = '7a191233823be5517a7135efde992711';
 const API_BASE = 'https://v3.football.api-sports.io';
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
