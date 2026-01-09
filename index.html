@@ -176,12 +176,12 @@
                     const awayForm = awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
                     
                     const formDiff = homeForm - awayForm;
-                    homeScore += formDiff * 2.5;
-                    awayScore -= formDiff * 2.5;
+                    homeScore += formDiff * 2;
+                    awayScore -= formDiff * 2;
                 }
 
                 // Avantage domicile
-                homeScore += 12;
+                homeScore += 10;
 
                 // Statistiques de buts
                 if (homeStats.goals && awayStats.goals) {
@@ -190,8 +190,8 @@
                     const homeDefAvg = parseFloat(homeStats.goals.against?.average?.home || 0);
                     const awayDefAvg = parseFloat(awayStats.goals.against?.average?.away || 0);
 
-                    homeScore += (homeGoalsAvg - awayDefAvg) * 8;
-                    awayScore += (awayGoalsAvg - homeDefAvg) * 8;
+                    homeScore += (homeGoalsAvg - awayDefAvg) * 6;
+                    awayScore += (awayGoalsAvg - homeDefAvg) * 6;
                 }
 
                 // Historique H2H
@@ -201,27 +201,37 @@
                         (m.teams.away.id === match.homeTeamId && m.teams.away.winner)
                     ).length;
                     
-                    homeScore += homeWins * 3;
-                    awayScore += (h2h.length - homeWins) * 3;
+                    homeScore += homeWins * 2.5;
+                    awayScore += (h2h.length - homeWins) * 2.5;
                 }
 
-                // Normaliser
+                // Calcul des probabilités brutes
                 const total = homeScore + awayScore;
-                let homeWinProb = Math.round((homeScore / total) * 100);
-                let awayWinProb = Math.round((awayScore / total) * 100);
+                const homeRatio = homeScore / total;
+                const awayRatio = awayScore / total;
                 
-                if (homeWinProb + awayWinProb > 100) {
-                    awayWinProb = 100 - homeWinProb;
+                // Calculer la probabilité de nul basée sur l'équilibre
+                const balance = Math.abs(homeRatio - awayRatio);
+                const drawProb = Math.round((1 - balance) * 30); // Plus c'est équilibré, plus le nul est probable
+                
+                // Distribuer le reste entre domicile et extérieur
+                const remaining = 100 - drawProb;
+                let homeWinProb = Math.round(homeRatio * remaining);
+                let awayWinProb = remaining - homeWinProb;
+                
+                // Ajustement final pour garantir exactement 100%
+                const currentTotal = homeWinProb + drawProb + awayWinProb;
+                if (currentTotal !== 100) {
+                    const diff = 100 - currentTotal;
+                    if (homeWinProb > awayWinProb) {
+                        homeWinProb += diff;
+                    } else {
+                        awayWinProb += diff;
+                    }
                 }
-                
-                const drawProb = Math.max(15, Math.min(30, 100 - homeWinProb - awayWinProb));
-                
-                const adjustment = (homeWinProb + awayWinProb + drawProb - 100) / 2;
-                homeWinProb = Math.max(0, Math.round(homeWinProb - adjustment));
-                awayWinProb = Math.max(0, Math.round(awayWinProb - adjustment));
 
                 const maxProb = Math.max(homeWinProb, awayWinProb, drawProb);
-                const confidence = Math.min(92, Math.max(55, maxProb + 15));
+                const confidence = Math.min(92, Math.max(55, maxProb + 10));
 
                 const homeForm = homeStats.form ? homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
                 const awayForm = awayStats.form ? awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
