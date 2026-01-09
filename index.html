@@ -85,18 +85,41 @@
                 setPrediction(null);
 
                 try {
-                    const response = await fetch(`/api/matches?league=${leagueId}`);
+                    // Appel direct à l'API Football
+                    const response = await fetch(
+                        `https://v3.football.api-sports.io/fixtures?league=${leagueId}&season=2025&next=10`,
+                        {
+                            headers: {
+                                'x-apisports-key': '7a191233823be5517a7135efde992711'
+                            }
+                        }
+                    );
+                    
                     const data = await response.json();
                     
-                    if (data.error) {
-                        setError(data.error);
-                    } else if (data.matches && data.matches.length > 0) {
-                        setMatches(data.matches);
+                    if (data.errors && Object.keys(data.errors).length > 0) {
+                        setError('Erreur API Football');
+                    } else if (data.response && data.response.length > 0) {
+                        // Formater les données
+                        const formattedMatches = data.response.map(match => ({
+                            id: match.fixture.id,
+                            date: match.fixture.date,
+                            leagueId: match.league.id,
+                            homeName: match.teams.home.name,
+                            awayName: match.teams.away.name,
+                            homeLogo: match.teams.home.logo,
+                            awayLogo: match.teams.away.logo,
+                            homeTeamId: match.teams.home.id,
+                            awayTeamId: match.teams.away.id,
+                            homeForm: null,
+                            awayForm: null
+                        }));
+                        setMatches(formattedMatches);
                     } else {
                         setError('Aucun match à venir trouvé pour cette compétition');
                     }
                 } catch (err) {
-                    setError('Erreur lors de la récupération des matchs');
+                    setError('Erreur lors de la récupération des matchs: ' + err.message);
                     console.error(err);
                 } finally {
                     setLoading(false);
@@ -109,33 +132,114 @@
                 setPrediction(null);
 
                 try {
-                    const response = await fetch('/api/predict', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            homeTeamId: match.homeTeamId,
-                            awayTeamId: match.awayTeamId,
-                            leagueId: match.leagueId,
-                            homeForm: match.homeForm,
-                            awayForm: match.awayForm
+                    // Récupérer les stats des deux équipes
+                    const [homeStatsRes, awayStatsRes, h2hRes] = await Promise.all([
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.homeTeamId}`, {
+                            headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
-                    });
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.awayTeamId}`, {
+                            headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
+                        }),
+                        fetch(`https://v3.football.api-sports.io/fixtures/headtohead?h2h=${match.homeTeamId}-${match.awayTeamId}&last=5`, {
+                            headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
+                        })
+                    ]);
 
-                    const data = await response.json();
-                    
-                    if (data.error) {
-                        setError(data.error);
-                    } else {
-                        setPrediction(data);
-                    }
+                    const homeStats = await homeStatsRes.json();
+                    const awayStats = await awayStatsRes.json();
+                    const h2h = await h2hRes.json();
+
+                    // Calculer la prédiction
+                    const pred = calculatePrediction(
+                        homeStats.response || {},
+                        awayStats.response || {},
+                        h2h.response || [],
+                        match
+                    );
+
+                    setPrediction(pred);
                 } catch (err) {
-                    setError('Erreur lors de la prédiction');
+                    setError('Erreur lors de la prédiction: ' + err.message);
                     console.error(err);
                 } finally {
                     setLoading(false);
                 }
+            };
+
+            const calculatePrediction = (homeStats, awayStats, h2h, match) => {
+                let homeScore = 50;
+                let awayScore = 50;
+
+                // Analyse de la forme
+                if (homeStats.form && awayStats.form) {
+                    const homeForm = homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
+                    const awayForm = awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
+                    
+                    const formDiff = homeForm - awayForm;
+                    homeScore += formDiff * 2.5;
+                    awayScore -= formDiff * 2.5;
+                }
+
+                // Avantage domicile
+                homeScore += 12;
+
+                // Statistiques de buts
+                if (homeStats.goals && awayStats.goals) {
+                    const homeGoalsAvg = parseFloat(homeStats.goals.for?.average?.home || 0);
+                    const awayGoalsAvg = parseFloat(awayStats.goals.for?.average?.away || 0);
+                    const homeDefAvg = parseFloat(homeStats.goals.against?.average?.home || 0);
+                    const awayDefAvg = parseFloat(awayStats.goals.against?.average?.away || 0);
+
+                    homeScore += (homeGoalsAvg - awayDefAvg) * 8;
+                    awayScore += (awayGoalsAvg - homeDefAvg) * 8;
+                }
+
+                // Historique H2H
+                if (h2h.length > 0) {
+                    const homeWins = h2h.filter(m => 
+                        (m.teams.home.id === match.homeTeamId && m.teams.home.winner) ||
+                        (m.teams.away.id === match.homeTeamId && m.teams.away.winner)
+                    ).length;
+                    
+                    homeScore += homeWins * 3;
+                    awayScore += (h2h.length - homeWins) * 3;
+                }
+
+                // Normaliser
+                const total = homeScore + awayScore;
+                let homeWinProb = Math.round((homeScore / total) * 100);
+                let awayWinProb = Math.round((awayScore / total) * 100);
+                
+                if (homeWinProb + awayWinProb > 100) {
+                    awayWinProb = 100 - homeWinProb;
+                }
+                
+                const drawProb = Math.max(15, Math.min(30, 100 - homeWinProb - awayWinProb));
+                
+                const adjustment = (homeWinProb + awayWinProb + drawProb - 100) / 2;
+                homeWinProb = Math.max(0, Math.round(homeWinProb - adjustment));
+                awayWinProb = Math.max(0, Math.round(awayWinProb - adjustment));
+
+                const maxProb = Math.max(homeWinProb, awayWinProb, drawProb);
+                const confidence = Math.min(92, Math.max(55, maxProb + 15));
+
+                const homeForm = homeStats.form ? homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
+                const awayForm = awayStats.form ? awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
+
+                return {
+                    homeWin: homeWinProb,
+                    draw: drawProb,
+                    awayWin: awayWinProb,
+                    confidence: confidence,
+                    prediction: homeWinProb > awayWinProb && homeWinProb > drawProb ? 'home' : 
+                               awayWinProb > homeWinProb && awayWinProb > drawProb ? 'away' : 'draw',
+                    analysis: {
+                        homeForm: homeForm,
+                        awayForm: awayForm,
+                        homeAttack: homeStats.goals?.for?.average?.home || 0,
+                        awayAttack: awayStats.goals?.for?.average?.away || 0
+                    }
+                };
             };
 
             const formatDate = (dateString) => {
