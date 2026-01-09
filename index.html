@@ -132,8 +132,8 @@
                 setPrediction(null);
 
                 try {
-                    // Récupérer les stats des deux équipes
-                    const [homeStatsRes, awayStatsRes, h2hRes] = await Promise.all([
+                    // Récupérer les stats des deux équipes et les classements
+                    const [homeStatsRes, awayStatsRes, h2hRes, standingsRes] = await Promise.all([
                         fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.homeTeamId}`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
@@ -142,18 +142,23 @@
                         }),
                         fetch(`https://v3.football.api-sports.io/fixtures/headtohead?h2h=${match.homeTeamId}-${match.awayTeamId}&last=5`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
+                        }),
+                        fetch(`https://v3.football.api-sports.io/standings?league=${match.leagueId}&season=2025`, {
+                            headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         })
                     ]);
 
                     const homeStats = await homeStatsRes.json();
                     const awayStats = await awayStatsRes.json();
                     const h2h = await h2hRes.json();
+                    const standings = await standingsRes.json();
 
                     // Calculer la prédiction
                     const pred = calculatePrediction(
                         homeStats.response || {},
                         awayStats.response || {},
                         h2h.response || [],
+                        standings.response || [],
                         match
                     );
 
@@ -166,43 +171,75 @@
                 }
             };
 
-            const calculatePrediction = (homeStats, awayStats, h2h, match) => {
+            const calculatePrediction = (homeStats, awayStats, h2h, standings, match) => {
                 let homeScore = 50;
                 let awayScore = 50;
 
-                // Analyse de la forme
+                // 1. Analyse de la forme récente (20%)
                 if (homeStats.form && awayStats.form) {
                     const homeForm = homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
                     const awayForm = awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
                     
                     const formDiff = homeForm - awayForm;
-                    homeScore += formDiff * 1.5;
-                    awayScore -= formDiff * 1.5;
+                    homeScore += formDiff * 1.2;
+                    awayScore -= formDiff * 1.2;
                 }
 
-                // Avantage domicile
+                // 2. Avantage domicile (10%)
                 homeScore += 8;
 
-                // Statistiques de buts
+                // 3. Statistiques de buts (20%)
                 if (homeStats.goals && awayStats.goals) {
                     const homeGoalsAvg = parseFloat(homeStats.goals.for?.average?.home || 0);
                     const awayGoalsAvg = parseFloat(awayStats.goals.for?.average?.away || 0);
                     const homeDefAvg = parseFloat(homeStats.goals.against?.average?.home || 0);
                     const awayDefAvg = parseFloat(awayStats.goals.against?.average?.away || 0);
 
-                    homeScore += (homeGoalsAvg - awayDefAvg) * 5;
-                    awayScore += (awayGoalsAvg - homeDefAvg) * 5;
+                    homeScore += (homeGoalsAvg - awayDefAvg) * 4;
+                    awayScore += (awayGoalsAvg - homeDefAvg) * 4;
                 }
 
-                // Historique H2H
+                // 4. Possession moyenne (15%)
+                if (homeStats.ball_possession && awayStats.ball_possession) {
+                    const homePossession = parseFloat(homeStats.ball_possession?.home?.replace('%', '') || 50);
+                    const awayPossession = parseFloat(awayStats.ball_possession?.away?.replace('%', '') || 50);
+                    
+                    const possessionDiff = homePossession - awayPossession;
+                    homeScore += possessionDiff * 0.3;
+                    awayScore -= possessionDiff * 0.3;
+                }
+
+                // 5. Nombre de tirs (15%)
+                if (homeStats.shots && awayStats.shots) {
+                    const homeShotsAvg = parseFloat(homeStats.shots?.for?.total?.home || 0);
+                    const awayShotsAvg = parseFloat(awayStats.shots?.for?.total?.away || 0);
+                    
+                    const shotsDiff = homeShotsAvg - awayShotsAvg;
+                    homeScore += shotsDiff * 0.4;
+                    awayScore -= shotsDiff * 0.4;
+                }
+
+                // 6. Classement (15%)
+                if (standings && standings.length > 0 && standings[0].league && standings[0].league.standings) {
+                    const table = standings[0].league.standings[0];
+                    const homeRank = table.find(t => t.team.id === match.homeTeamId)?.rank || 10;
+                    const awayRank = table.find(t => t.team.id === match.awayTeamId)?.rank || 10;
+                    
+                    // Plus le rang est bas (proche de 1), meilleure est l'équipe
+                    const rankDiff = awayRank - homeRank; // Inversé car rang bas = meilleur
+                    homeScore += rankDiff * 1.5;
+                    awayScore -= rankDiff * 1.5;
+                }
+
+                // 7. Historique H2H (5%)
                 if (h2h.length > 0) {
                     const homeWins = h2h.filter(m => 
                         (m.teams.home.id === match.homeTeamId && m.teams.home.winner) ||
                         (m.teams.away.id === match.homeTeamId && m.teams.away.winner)
                     ).length;
                     
-                    homeScore += homeWins * 2;
-                    awayScore += (h2h.length - homeWins) * 2;
+                    homeScore += homeWins * 1.5;
+                    awayScore += (h2h.length - homeWins) * 1.5;
                 }
 
                 // S'assurer que les scores sont positifs
@@ -214,20 +251,20 @@
                 const homeRatio = homeScore / total;
                 const awayRatio = awayScore / total;
                 
-                // Calculer la probabilité de nul basée sur l'équilibre
+                // Calculer la probabilité de nul basée sur l'équilibre (sans maximum)
                 const balance = Math.abs(homeRatio - awayRatio);
-                let drawProb = Math.round((1 - balance) * 25); // Plus c'est équilibré, plus le nul est probable
-                drawProb = Math.max(5, Math.min(30, drawProb)); // Entre 5% et 30%
+                let drawProb = Math.round((1 - balance) * 40); // Peut aller jusqu'à 40% si très équilibré
+                drawProb = Math.max(5, drawProb); // Minimum 5%
                 
                 // Distribuer le reste entre domicile et extérieur
                 const remaining = 100 - drawProb;
                 let homeWinProb = Math.round(homeRatio * remaining);
                 let awayWinProb = remaining - homeWinProb;
                 
-                // Garantir un minimum de 1% pour chaque issue
+                // Garantir les minimums : 1% pour chaque équipe, 5% pour le nul
                 homeWinProb = Math.max(1, homeWinProb);
                 awayWinProb = Math.max(1, awayWinProb);
-                drawProb = Math.max(1, drawProb);
+                drawProb = Math.max(5, drawProb);
                 
                 // Ajustement final pour garantir exactement 100%
                 let currentTotal = homeWinProb + drawProb + awayWinProb;
@@ -260,6 +297,15 @@
                 const homeForm = homeStats.form ? homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
                 const awayForm = awayStats.form ? awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
 
+                // Trouver le classement
+                let homeRank = 'N/A';
+                let awayRank = 'N/A';
+                if (standings && standings.length > 0 && standings[0].league && standings[0].league.standings) {
+                    const table = standings[0].league.standings[0];
+                    homeRank = table.find(t => t.team.id === match.homeTeamId)?.rank || 'N/A';
+                    awayRank = table.find(t => t.team.id === match.awayTeamId)?.rank || 'N/A';
+                }
+
                 return {
                     homeWin: homeWinProb,
                     draw: drawProb,
@@ -271,7 +317,13 @@
                         homeForm: homeForm,
                         awayForm: awayForm,
                         homeAttack: homeStats.goals?.for?.average?.home || 0,
-                        awayAttack: awayStats.goals?.for?.average?.away || 0
+                        awayAttack: awayStats.goals?.for?.average?.away || 0,
+                        homePossession: homeStats.ball_possession?.home || 'N/A',
+                        awayPossession: awayStats.ball_possession?.away || 'N/A',
+                        homeShots: homeStats.shots?.for?.total?.home || 0,
+                        awayShots: awayStats.shots?.for?.total?.away || 0,
+                        homeRank: homeRank,
+                        awayRank: awayRank
                     }
                 };
             };
