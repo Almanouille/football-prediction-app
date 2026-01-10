@@ -121,7 +121,7 @@
         };
 
         function App() {
-            const [navigationLevel, setNavigationLevel] = useState('home'); // home, category, country, league
+            const [navigationLevel, setNavigationLevel] = useState('home'); // home, category, country, league, matches
             const [selectedCategory, setSelectedCategory] = useState(null); // european, national
             const [selectedCountry, setSelectedCountry] = useState(null);
             const [selectedLeague, setSelectedLeague] = useState(null);
@@ -153,11 +153,16 @@
 
             const selectLeague = (league) => {
                 setSelectedLeague(league);
+                setNavigationLevel('matches');
                 fetchMatches(league.id);
             };
 
             const goBack = () => {
-                if (navigationLevel === 'league' && selectedCategory === 'national') {
+                if (navigationLevel === 'matches') {
+                    setNavigationLevel(selectedCategory === 'national' ? 'league' : 'league');
+                    setSelectedLeague(null);
+                    setMatches([]);
+                } else if (navigationLevel === 'league' && selectedCategory === 'national') {
                     setNavigationLevel('country');
                     setSelectedCountry(null);
                     setSelectedLeague(null);
@@ -621,7 +626,7 @@
             }
 
             // Render Matches List (when league is selected)
-            if (selectedLeague && !selectedMatch) {
+            if (navigationLevel === 'matches' && selectedLeague && !selectedMatch) {
                 return (
                     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 p-4">
                         <div className="max-w-4xl mx-auto">
@@ -658,7 +663,10 @@
                                             <div
                                                 key={match.id}
                                                 className="border-2 border-gray-200 rounded-lg p-4 hover:shadow-lg hover:border-blue-400 transition-all cursor-pointer"
-                                                onClick={() => setSelectedMatch(match)}
+                                                onClick={() => {
+                                                    setSelectedMatch(match);
+                                                    setNavigationLevel('prediction');
+                                                }}
                                             >
                                                 <div className="flex items-center justify-between mb-3">
                                                     <div className="flex items-center gap-2 text-sm text-gray-500">
@@ -688,7 +696,7 @@
             }
 
             // Render Match Details and Prediction
-            if (selectedMatch) {
+            if (navigationLevel === 'prediction' && selectedMatch) {
                 return (
                     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 p-4">
                         <div className="max-w-4xl mx-auto pt-8">
@@ -697,6 +705,7 @@
                                     onClick={() => {
                                         setSelectedMatch(null);
                                         setPrediction(null);
+                                        setNavigationLevel('matches');
                                     }}
                                     className="text-blue-600 hover:text-blue-800 font-medium mb-6"
                                 >
