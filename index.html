@@ -230,28 +230,17 @@
                 setPrediction(null);
 
                 try {
-                    // Déterminer si c'est une coupe
-                    const cupLeagues = [66, 65, 45, 48, 143, 81, 137];
-                    const isCup = cupLeagues.includes(match.leagueId);
-                    
-                    // Mapping des ligues principales
-                    const mainLeagues = {
-                        66: 61, 65: 61, 45: 39, 48: 39, 143: 140, 81: 78, 137: 135
-                    };
-
-                    let statsLeagueId = isCup ? mainLeagues[match.leagueId] : match.leagueId;
-                    
                     const [homeStatsRes, awayStatsRes, h2hRes, standingsRes] = await Promise.all([
-                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${statsLeagueId}&season=2025&team=${match.homeTeamId}`, {
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.homeTeamId}`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
-                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${statsLeagueId}&season=2025&team=${match.awayTeamId}`, {
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.awayTeamId}`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
                         fetch(`https://v3.football.api-sports.io/fixtures/headtohead?h2h=${match.homeTeamId}-${match.awayTeamId}&last=5`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
-                        fetch(`https://v3.football.api-sports.io/standings?league=${statsLeagueId}&season=2025`, {
+                        fetch(`https://v3.football.api-sports.io/standings?league=${match.leagueId}&season=2025`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         })
                     ]);
@@ -266,8 +255,7 @@
                         awayStats.response || {},
                         h2h.response || [],
                         standings.response || [],
-                        match,
-                        isCup
+                        match
                     );
 
                     setPrediction(pred);
@@ -279,156 +267,7 @@
                 }
             };
 
-            const calculatePrediction = (homeStats, awayStats, h2h, standings, match, isCup = false) => {
-                let homeScore = 50;
-                let awayScore = 50;
-
-                // 1. Analyse de la forme récente (25% pour coupe, 20% pour championnat)
-                const formWeight = isCup ? 1.5 : 1.2;
-                if (homeStats.form && awayStats.form) {
-                    const homeForm = homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
-                    const awayForm = awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
-                    
-                    const formDiff = homeForm - awayForm;
-                    homeScore += formDiff * formWeight;
-                    awayScore -= formDiff * formWeight;
-                }
-
-                // 2. Avantage domicile (plus important en coupe)
-                const homeAdvantage = isCup ? 10 : 8;
-                homeScore += homeAdvantage;
-
-                // 3. Statistiques de buts (25% pour coupe, 20% pour championnat)
-                const goalsWeight = isCup ? 5 : 4;
-                if (homeStats.goals && awayStats.goals) {
-                    const homeGoalsAvg = parseFloat(homeStats.goals.for?.average?.home || homeStats.goals.for?.average?.total || 0);
-                    const awayGoalsAvg = parseFloat(awayStats.goals.for?.average?.away || awayStats.goals.for?.average?.total || 0);
-                    const homeDefAvg = parseFloat(homeStats.goals.against?.average?.home || homeStats.goals.against?.average?.total || 0);
-                    const awayDefAvg = parseFloat(awayStats.goals.against?.average?.away || awayStats.goals.against?.average?.total || 0);
-
-                    homeScore += (homeGoalsAvg - awayDefAvg) * goalsWeight;
-                    awayScore += (awayGoalsAvg - homeDefAvg) * goalsWeight;
-                }
-
-                // 4. Possession moyenne (10%)
-                if (homeStats.ball_possession && awayStats.ball_possession) {
-                    const homePossession = parseFloat(homeStats.ball_possession?.home?.replace('%', '') || homeStats.ball_possession?.all?.replace('%', '') || 50);
-                    const awayPossession = parseFloat(awayStats.ball_possession?.away?.replace('%', '') || awayStats.ball_possession?.all?.replace('%', '') || 50);
-                    
-                    const possessionDiff = homePossession - awayPossession;
-                    homeScore += possessionDiff * 0.3;
-                    awayScore -= possessionDiff * 0.3;
-                }
-
-                // 5. Nombre de tirs (10%)
-                if (homeStats.shots && awayStats.shots) {
-                    const homeShotsAvg = parseFloat(homeStats.shots?.for?.total?.home || homeStats.shots?.for?.total?.total || 0);
-                    const awayShotsAvg = parseFloat(awayStats.shots?.for?.total?.away || awayStats.shots?.for?.total?.total || 0);
-                    
-                    const shotsDiff = homeShotsAvg - awayShotsAvg;
-                    homeScore += shotsDiff * 0.4;
-                    awayScore -= shotsDiff * 0.4;
-                }
-
-                // 6. Classement (25% pour coupe car reflète le niveau, 15% pour championnat)
-                const rankWeight = isCup ? 2.0 : 1.5;
-                if (standings && standings.length > 0 && standings[0].league && standings[0].league.standings) {
-                    const table = standings[0].league.standings[0];
-                    const homeRank = table.find(t => t.team.id === match.homeTeamId)?.rank || 10;
-                    const awayRank = table.find(t => t.team.id === match.awayTeamId)?.rank || 10;
-                    
-                    const rankDiff = awayRank - homeRank;
-                    homeScore += rankDiff * rankWeight;
-                    awayScore -= rankDiff * rankWeight;
-                }
-
-                // 7. Historique H2H (5% - moins important en coupe)
-                if (h2h.length > 0) {
-                    const homeWins = h2h.filter(m => 
-                        (m.teams.home.id === match.homeTeamId && m.teams.home.winner) ||
-                        (m.teams.away.id === match.homeTeamId && m.teams.away.winner)
-                    ).length;
-                    
-                    homeScore += homeWins * 1.5;
-                    awayScore += (h2h.length - homeWins) * 1.5;
-                }
-
-                homeScore = Math.max(10, homeScore);
-                awayScore = Math.max(10, awayScore);
-
-                const total = homeScore + awayScore;
-                const homeRatio = homeScore / total;
-                const awayRatio = awayScore / total;
-                
-                // En coupe, moins de nuls (prolongations/penalties)
-                const balance = Math.abs(homeRatio - awayRatio);
-                let drawProb = isCup ? Math.round((1 - balance) * 25) : Math.round((1 - balance) * 40);
-                drawProb = Math.max(5, drawProb);
-                
-                const remaining = 100 - drawProb;
-                let homeWinProb = Math.round(homeRatio * remaining);
-                let awayWinProb = remaining - homeWinProb;
-                
-                homeWinProb = Math.max(1, homeWinProb);
-                awayWinProb = Math.max(1, awayWinProb);
-                drawProb = Math.max(5, drawProb);
-                
-                let currentTotal = homeWinProb + drawProb + awayWinProb;
-                
-                if (currentTotal > 100) {
-                    const factor = 100 / currentTotal;
-                    homeWinProb = Math.round(homeWinProb * factor);
-                    awayWinProb = Math.round(awayWinProb * factor);
-                    drawProb = Math.round(drawProb * factor);
-                }
-                
-                currentTotal = homeWinProb + drawProb + awayWinProb;
-                if (currentTotal !== 100) {
-                    const diff = 100 - currentTotal;
-                    if (homeWinProb >= awayWinProb && homeWinProb >= drawProb) {
-                        homeWinProb += diff;
-                    } else if (awayWinProb >= homeWinProb && awayWinProb >= drawProb) {
-                        awayWinProb += diff;
-                    } else {
-                        drawProb += diff;
-                    }
-                }
-
-                const maxProb = Math.max(homeWinProb, awayWinProb, drawProb);
-                const confidence = Math.min(92, Math.max(55, maxProb + 10));
-
-                const homeForm = homeStats.form ? homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
-                const awayForm = awayStats.form ? awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) : 0;
-
-                let homeRank = 'N/A';
-                let awayRank = 'N/A';
-                if (standings && standings.length > 0 && standings[0].league && standings[0].league.standings) {
-                    const table = standings[0].league.standings[0];
-                    homeRank = table.find(t => t.team.id === match.homeTeamId)?.rank || 'N/A';
-                    awayRank = table.find(t => t.team.id === match.awayTeamId)?.rank || 'N/A';
-                }
-
-                return {
-                    homeWin: homeWinProb,
-                    draw: drawProb,
-                    awayWin: awayWinProb,
-                    confidence: confidence,
-                    prediction: homeWinProb > awayWinProb && homeWinProb > drawProb ? 'home' : 
-                               awayWinProb > homeWinProb && awayWinProb > drawProb ? 'away' : 'draw',
-                    analysis: {
-                        homeForm: homeForm,
-                        awayForm: awayForm,
-                        homeAttack: homeStats.goals?.for?.average?.home || homeStats.goals?.for?.average?.total || 0,
-                        awayAttack: awayStats.goals?.for?.average?.away || awayStats.goals?.for?.average?.total || 0,
-                        homePossession: homeStats.ball_possession?.home || homeStats.ball_possession?.all || 'N/A',
-                        awayPossession: awayStats.ball_possession?.away || awayStats.ball_possession?.all || 'N/A',
-                        homeShots: homeStats.shots?.for?.total?.home || homeStats.shots?.for?.total?.total || 0,
-                        awayShots: awayStats.shots?.for?.total?.away || awayStats.shots?.for?.total?.total || 0,
-                        homeRank: homeRank,
-                        awayRank: awayRank
-                    }
-                };
-            };
+            const calculatePrediction = (homeStats, awayStats, h2h, standings, match) => {
                 let homeScore = 50;
                 let awayScore = 50;
 
