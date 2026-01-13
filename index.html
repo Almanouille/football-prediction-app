@@ -121,8 +121,8 @@
         };
 
         function App() {
-            const [navigationLevel, setNavigationLevel] = useState('home'); // home, category, country, league, matches
-            const [selectedCategory, setSelectedCategory] = useState(null); // european, national
+            const [navigationLevel, setNavigationLevel] = useState('home');
+            const [selectedCategory, setSelectedCategory] = useState(null);
             const [selectedCountry, setSelectedCountry] = useState(null);
             const [selectedLeague, setSelectedLeague] = useState(null);
             const [matches, setMatches] = useState([]);
@@ -230,17 +230,35 @@
                 setPrediction(null);
 
                 try {
+                    // Déterminer si c'est une coupe
+                    const cupLeagues = [66, 65, 45, 48, 143, 81, 137];
+                    const isCup = cupLeagues.includes(match.leagueId);
+                    
+                    // Mapping des ligues principales par pays
+                    const mainLeagues = {
+                        66: 61,  // Coupe de France → Ligue 1
+                        65: 61,  // Coupe de la Ligue → Ligue 1
+                        45: 39,  // FA Cup → Premier League
+                        48: 39,  // League Cup → Premier League
+                        143: 140, // Copa del Rey → La Liga
+                        81: 78,  // DFB-Pokal → Bundesliga
+                        137: 135  // Coppa Italia → Serie A
+                    };
+
+                    // Utiliser la ligue principale pour les stats si c'est une coupe
+                    const statsLeagueId = isCup ? mainLeagues[match.leagueId] : match.leagueId;
+
                     const [homeStatsRes, awayStatsRes, h2hRes, standingsRes] = await Promise.all([
-                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.homeTeamId}`, {
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${statsLeagueId}&season=2025&team=${match.homeTeamId}`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
-                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${match.leagueId}&season=2025&team=${match.awayTeamId}`, {
+                        fetch(`https://v3.football.api-sports.io/teams/statistics?league=${statsLeagueId}&season=2025&team=${match.awayTeamId}`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
                         fetch(`https://v3.football.api-sports.io/fixtures/headtohead?h2h=${match.homeTeamId}-${match.awayTeamId}&last=5`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         }),
-                        fetch(`https://v3.football.api-sports.io/standings?league=${match.leagueId}&season=2025`, {
+                        fetch(`https://v3.football.api-sports.io/standings?league=${statsLeagueId}&season=2025`, {
                             headers: { 'x-apisports-key': '7a191233823be5517a7135efde992711' }
                         })
                     ]);
@@ -255,7 +273,8 @@
                         awayStats.response || {},
                         h2h.response || [],
                         standings.response || [],
-                        match
+                        match,
+                        isCup
                     );
 
                     setPrediction(pred);
@@ -267,66 +286,72 @@
                 }
             };
 
-            const calculatePrediction = (homeStats, awayStats, h2h, standings, match) => {
+            const calculatePrediction = (homeStats, awayStats, h2h, standings, match, isCup = false) => {
                 let homeScore = 50;
                 let awayScore = 50;
 
-                // 1. Forme récente
+                // Poids ajustés selon le type de compétition
+                const formWeight = isCup ? 1.5 : 1.2;
+                const homeAdvantage = isCup ? 10 : 8;
+                const goalsWeight = isCup ? 5 : 4;
+                const rankWeight = isCup ? 2.0 : 1.5;
+
+                // 1. Forme récente (20-25%)
                 if (homeStats.form && awayStats.form) {
                     const homeForm = homeStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
                     const awayForm = awayStats.form.split('').reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0);
                     
                     const formDiff = homeForm - awayForm;
-                    homeScore += formDiff * 1.2;
-                    awayScore -= formDiff * 1.2;
+                    homeScore += formDiff * formWeight;
+                    awayScore -= formDiff * formWeight;
                 }
 
-                // 2. Avantage domicile
-                homeScore += 8;
+                // 2. Avantage domicile (8-10 points)
+                homeScore += homeAdvantage;
 
-                // 3. Statistiques de buts
+                // 3. Statistiques de buts (20-25%)
                 if (homeStats.goals && awayStats.goals) {
-                    const homeGoalsAvg = parseFloat(homeStats.goals.for?.average?.home || 0);
-                    const awayGoalsAvg = parseFloat(awayStats.goals.for?.average?.away || 0);
-                    const homeDefAvg = parseFloat(homeStats.goals.against?.average?.home || 0);
-                    const awayDefAvg = parseFloat(awayStats.goals.against?.average?.away || 0);
+                    const homeGoalsAvg = parseFloat(homeStats.goals.for?.average?.home || homeStats.goals.for?.average?.total || 0);
+                    const awayGoalsAvg = parseFloat(awayStats.goals.for?.average?.away || awayStats.goals.for?.average?.total || 0);
+                    const homeDefAvg = parseFloat(homeStats.goals.against?.average?.home || homeStats.goals.against?.average?.total || 0);
+                    const awayDefAvg = parseFloat(awayStats.goals.against?.average?.away || awayStats.goals.against?.average?.total || 0);
 
-                    homeScore += (homeGoalsAvg - awayDefAvg) * 4;
-                    awayScore += (awayGoalsAvg - homeDefAvg) * 4;
+                    homeScore += (homeGoalsAvg - awayDefAvg) * goalsWeight;
+                    awayScore += (awayGoalsAvg - homeDefAvg) * goalsWeight;
                 }
 
-                // 4. Possession moyenne
+                // 4. Possession moyenne (10%)
                 if (homeStats.ball_possession && awayStats.ball_possession) {
-                    const homePossession = parseFloat(homeStats.ball_possession?.home?.replace('%', '') || 50);
-                    const awayPossession = parseFloat(awayStats.ball_possession?.away?.replace('%', '') || 50);
+                    const homePossession = parseFloat((homeStats.ball_possession?.home || homeStats.ball_possession?.all || '50%').replace('%', ''));
+                    const awayPossession = parseFloat((awayStats.ball_possession?.away || awayStats.ball_possession?.all || '50%').replace('%', ''));
                     
                     const possessionDiff = homePossession - awayPossession;
                     homeScore += possessionDiff * 0.3;
                     awayScore -= possessionDiff * 0.3;
                 }
 
-                // 5. Nombre de tirs
+                // 5. Nombre de tirs (10%)
                 if (homeStats.shots && awayStats.shots) {
-                    const homeShotsAvg = parseFloat(homeStats.shots?.for?.total?.home || 0);
-                    const awayShotsAvg = parseFloat(awayStats.shots?.for?.total?.away || 0);
+                    const homeShotsAvg = parseFloat(homeStats.shots?.for?.total?.home || homeStats.shots?.for?.total?.total || 0);
+                    const awayShotsAvg = parseFloat(awayStats.shots?.for?.total?.away || awayStats.shots?.for?.total?.total || 0);
                     
                     const shotsDiff = homeShotsAvg - awayShotsAvg;
                     homeScore += shotsDiff * 0.4;
                     awayScore -= shotsDiff * 0.4;
                 }
 
-                // 6. Classement
+                // 6. Classement (15-25%)
                 if (standings && standings.length > 0 && standings[0].league && standings[0].league.standings) {
                     const table = standings[0].league.standings[0];
                     const homeRank = table.find(t => t.team.id === match.homeTeamId)?.rank || 10;
                     const awayRank = table.find(t => t.team.id === match.awayTeamId)?.rank || 10;
                     
                     const rankDiff = awayRank - homeRank;
-                    homeScore += rankDiff * 1.5;
-                    awayScore -= rankDiff * 1.5;
+                    homeScore += rankDiff * rankWeight;
+                    awayScore -= rankDiff * rankWeight;
                 }
 
-                // 7. Historique H2H
+                // 7. Historique H2H (5%)
                 if (h2h.length > 0) {
                     const homeWins = h2h.filter(m => 
                         (m.teams.home.id === match.homeTeamId && m.teams.home.winner) ||
@@ -344,8 +369,9 @@
                 const homeRatio = homeScore / total;
                 const awayRatio = awayScore / total;
                 
+                // En coupe: moins de nuls (prolongations/penalties)
                 const balance = Math.abs(homeRatio - awayRatio);
-                let drawProb = Math.round((1 - balance) * 40);
+                let drawProb = isCup ? Math.round((1 - balance) * 25) : Math.round((1 - balance) * 40);
                 drawProb = Math.max(5, drawProb);
                 
                 const remaining = 100 - drawProb;
@@ -401,12 +427,12 @@
                     analysis: {
                         homeForm: homeForm,
                         awayForm: awayForm,
-                        homeAttack: homeStats.goals?.for?.average?.home || 0,
-                        awayAttack: awayStats.goals?.for?.average?.away || 0,
-                        homePossession: homeStats.ball_possession?.home || 'N/A',
-                        awayPossession: awayStats.ball_possession?.away || 'N/A',
-                        homeShots: homeStats.shots?.for?.total?.home || 0,
-                        awayShots: awayStats.shots?.for?.total?.away || 0,
+                        homeAttack: homeStats.goals?.for?.average?.home || homeStats.goals?.for?.average?.total || 0,
+                        awayAttack: awayStats.goals?.for?.average?.away || awayStats.goals?.for?.average?.total || 0,
+                        homePossession: homeStats.ball_possession?.home || homeStats.ball_possession?.all || 'N/A',
+                        awayPossession: awayStats.ball_possession?.away || awayStats.ball_possession?.all || 'N/A',
+                        homeShots: homeStats.shots?.for?.total?.home || homeStats.shots?.for?.total?.total || 0,
+                        awayShots: awayStats.shots?.for?.total?.away || awayStats.shots?.for?.total?.total || 0,
                         homeRank: homeRank,
                         awayRank: awayRank
                     }
@@ -577,7 +603,6 @@
                                 </button>
 
                                 <div className="space-y-6">
-                                    {/* Championnats */}
                                     <div>
                                         <h3 className="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
                                             <span>🏆</span> Championnats
@@ -598,7 +623,6 @@
                                         </div>
                                     </div>
 
-                                    {/* Coupes */}
                                     <div>
                                         <h3 className="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
                                             <span>🏅</span> Coupes
@@ -625,7 +649,7 @@
                 );
             }
 
-            // Render Matches List (when league is selected)
+            // Render Matches List
             if (navigationLevel === 'matches' && selectedLeague && !selectedMatch) {
                 return (
                     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 p-4">
