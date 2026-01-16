@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# Données d'entraînement (trop grosses)
+football_training_data.csv
+
+# Scripts de collecte (pas nécessaires en prod)
+collect_data.py
+train_model_v2.py
+train_model.py
+diagnose_model.py
+test_predictions.py
+
+# Fichiers système
+.DS_Store
