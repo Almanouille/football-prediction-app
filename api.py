@@ -323,17 +323,24 @@ WC_FIFA_POINTS = {
     5530: 1300, # Curaçao
 }
 
+FRIENDLY_LEAGUE_ID = 10  # "Friendlies" en API-Football
+
 def get_national_team_form(team_id, last=10):
-    """Récupère la forme récente d'une équipe nationale (toutes compétitions confondues)"""
+    """Récupère la forme récente d'une équipe nationale, en pondérant les matchs
+    de compétition (Coupe du Monde, qualifications, etc.) plus fortement que les amicaux,
+    et en donnant plus de poids aux matchs les plus récents."""
     data = make_api_request('fixtures', {'team': team_id, 'last': last})
     fixtures = data.get('response', []) if data else []
 
     played = len(fixtures)
-    goals_for = 0
-    goals_against = 0
-    form_points = 0
+    weighted_goals_for = 0.0
+    weighted_goals_against = 0.0
+    weighted_form_points = 0.0
+    total_weight = 0.0
 
-    for f in fixtures:
+    # Les fixtures sont renvoyées du plus ancien au plus récent : on pondère
+    # linéairement (1.0 pour le plus ancien, 2.0 pour le plus récent).
+    for i, f in enumerate(fixtures):
         home_id = f['teams']['home']['id']
         gh = f['goals']['home'] or 0
         ga = f['goals']['away'] or 0
@@ -343,21 +350,29 @@ def get_national_team_form(team_id, last=10):
         else:
             scored, conceded = ga, gh
 
-        goals_for += scored
-        goals_against += conceded
+        recency_weight = 1.0 + (i / max(played - 1, 1))
+        is_friendly = f.get('league', {}).get('id') == FRIENDLY_LEAGUE_ID
+        competition_weight = 1.0 if is_friendly else 1.5
+
+        weight = recency_weight * competition_weight
+
+        weighted_goals_for += scored * weight
+        weighted_goals_against += conceded * weight
 
         if scored > conceded:
-            form_points += 3
+            weighted_form_points += 3 * weight
         elif scored == conceded:
-            form_points += 1
+            weighted_form_points += 1 * weight
 
-    if played == 0:
+        total_weight += weight
+
+    if played == 0 or total_weight == 0:
         return {'goals_for_avg': 1.0, 'goals_against_avg': 1.0, 'form_points': 0, 'played': 0}
 
     return {
-        'goals_for_avg': goals_for / played,
-        'goals_against_avg': goals_against / played,
-        'form_points': form_points,
+        'goals_for_avg': weighted_goals_for / total_weight,
+        'goals_against_avg': weighted_goals_against / total_weight,
+        'form_points': weighted_form_points / total_weight * played,
         'played': played
     }
 
