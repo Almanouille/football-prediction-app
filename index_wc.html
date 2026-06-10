@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏆 Prédictions Coupe du Monde 2026</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+    body {
+        background: #0d1b2a;
+        min-height: 100vh;
+        padding: 20px;
+        color: #fff;
+    }
+    .container { max-width: 950px; margin: 0 auto; }
+    h1 { text-align: center; margin-bottom: 5px; font-size: 2em; }
+    .subtitle { text-align: center; opacity: 0.85; margin-bottom: 25px; }
+    .api-config {
+        background: rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .api-config input {
+        flex: 1;
+        min-width: 200px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: none;
+        font-size: 0.9em;
+    }
+    .group-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 20px;
+    }
+    .group-tab {
+        background: rgba(255,255,255,0.15);
+        border: none;
+        color: #fff;
+        padding: 8px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background 0.15s;
+    }
+    .group-tab:hover { background: rgba(255,255,255,0.3); }
+    .group-tab.active { background: #fdbb2d; color: #1a2a6c; }
+
+    .panel {
+        background: rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 20px;
+    }
+    .panel h2 { font-size: 1.1em; margin-bottom: 12px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+    th, td { padding: 6px 8px; text-align: center; }
+    th { opacity: 0.8; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.25); }
+    td.team-name { text-align: left; }
+    tr:nth-child(even) td { background: rgba(255,255,255,0.04); }
+
+    .recent-result {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        font-size: 0.9em;
+    }
+    .recent-result:last-child { border-bottom: none; }
+    .no-data { opacity: 0.7; font-style: italic; font-size: 0.9em; }
+
+    .match-card {
+        background: rgba(255,255,255,0.12);
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 12px;
+        backdrop-filter: blur(5px);
+    }
+    .match-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .match-teams { font-size: 1.15em; font-weight: bold; }
+    .match-meta { font-size: 0.85em; opacity: 0.8; }
+    .predict-btn {
+        background: #fdbb2d;
+        color: #1a2a6c;
+        border: none;
+        padding: 8px 18px;
+        border-radius: 20px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: transform 0.15s;
+    }
+    .predict-btn:hover { transform: scale(1.05); }
+    .predict-btn:disabled { opacity: 0.6; cursor: wait; }
+    .result {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(255,255,255,0.2);
+    }
+    .bars { display: flex; height: 28px; border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+    .bar { display: flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: bold; transition: width 0.4s; }
+    .bar.home { background: #2ecc71; }
+    .bar.draw { background: #95a5a6; }
+    .bar.away { background: #e74c3c; }
+    .result-labels { display: flex; justify-content: space-between; font-size: 0.85em; opacity: 0.85; }
+    .h2h { margin-top: 10px; font-size: 0.85em; opacity: 0.9; }
+    .h2h-title { font-weight: bold; margin-bottom: 4px; }
+    .error { color: #ffd2d2; font-size: 0.9em; margin-top: 8px; }
+    .round-title {
+        font-size: 1.1em;
+        font-weight: bold;
+        margin: 25px 0 10px;
+        padding-bottom: 5px;
+        border-bottom: 2px solid rgba(255,255,255,0.3);
+    }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>🏆 Prédictions Coupe du Monde 2026</h1>
+    <p class="subtitle">Phase de groupes — basé sur la forme récente des sélections nationales</p>
+
+    <div class="api-config">
+        <label for="apiUrl">URL de l'API :</label>
+        <input type="text" id="apiUrl" value="http://localhost:5002">
+    </div>
+
+    <div class="group-tabs" id="groupTabs"></div>
+
+    <div class="panel">
+        <h2 id="standingsTitle">📊 Classement</h2>
+        <table id="standingsTable"></table>
+    </div>
+
+    <div class="panel">
+        <h2>📰 Derniers résultats du groupe</h2>
+        <div id="recentResults"><p class="no-data">Aucun match joué pour le moment.</p></div>
+    </div>
+
+    <div id="matches"></div>
+</div>
+
+<script>
+const FIXTURES_DATA = {"teams": {"16": "Mexico", "1531": "South Africa", "17": "South Korea", "770": "Czech Republic", "5529": "Canada", "1113": "Bosnia & Herzegovina", "2384": "USA", "2380": "Paraguay", "1569": "Qatar", "15": "Switzerland", "6": "Brazil", "31": "Morocco", "2386": "Haiti", "1108": "Scotland", "20": "Australia", "777": "Türkiye", "25": "Germany", "5530": "Curaçao", "1118": "Netherlands", "12": "Japan", "1501": "Ivory Coast", "2382": "Ecuador", "5": "Sweden", "28": "Tunisia", "9": "Spain", "1533": "Cape Verde Islands", "1": "Belgium", "32": "Egypt", "23": "Saudi Arabia", "7": "Uruguay", "22": "Iran", "4673": "New Zealand", "2": "France", "13": "Senegal", "1567": "Iraq", "1090": "Norway", "26": "Argentina", "1532": "Algeria", "775": "Austria", "1548": "Jordan", "27": "Portugal", "1508": "Congo DR", "10": "England", "3": "Croatia", "1504": "Ghana", "11": "Panama", "1568": "Uzbekistan", "8": "Colombia"}, "fixtures": [{"id": 1489369, "date": "2026-06-11T19:00:00+00:00", "venue": "Mexico City", "home_id": 16, "home": "Mexico", "away_id": 1531, "away": "South Africa", "round": "Group Stage - 1", "group": "A"}, {"id": 1538999, "date": "2026-06-12T02:00:00+00:00", "venue": "Guadalajara", "home_id": 17, "home": "South Korea", "away_id": 770, "away": "Czech Republic", "round": "Group Stage - 1", "group": "A"}, {"id": 1539000, "date": "2026-06-12T19:00:00+00:00", "venue": "Toronto", "home_id": 5529, "home": "Canada", "away_id": 1113, "away": "Bosnia & Herzegovina", "round": "Group Stage - 1", "group": "B"}, {"id": 1489370, "date": "2026-06-13T01:00:00+00:00", "venue": "Los Angeles", "home_id": 2384, "home": "USA", "away_id": 2380, "away": "Paraguay", "round": "Group Stage - 1", "group": "D"}, {"id": 1489373, "date": "2026-06-13T19:00:00+00:00", "venue": "San Francisco Bay Area", "home_id": 1569, "home": "Qatar", "away_id": 15, "away": "Switzerland", "round": "Group Stage - 1", "group": "B"}, {"id": 1489371, "date": "2026-06-13T22:00:00+00:00", "venue": "New York New Jersey", "home_id": 6, "home": "Brazil", "away_id": 31, "away": "Morocco", "round": "Group Stage - 1", "group": "C"}, {"id": 1489372, "date": "2026-06-14T01:00:00+00:00", "venue": "Boston", "home_id": 2386, "home": "Haiti", "away_id": 1108, "away": "Scotland", "round": "Group Stage - 1", "group": "C"}, {"id": 1539001, "date": "2026-06-14T04:00:00+00:00", "venue": "Vancouver", "home_id": 20, "home": "Australia", "away_id": 777, "away": "Türkiye", "round": "Group Stage - 1", "group": "D"}, {"id": 1489374, "date": "2026-06-14T17:00:00+00:00", "venue": "Houston", "home_id": 25, "home": "Germany", "away_id": 5530, "away": "Curaçao", "round": "Group Stage - 1", "group": "E"}, {"id": 1489376, "date": "2026-06-14T20:00:00+00:00", "venue": "Dallas", "home_id": 1118, "home": "Netherlands", "away_id": 12, "away": "Japan", "round": "Group Stage - 1", "group": "F"}, {"id": 1489375, "date": "2026-06-14T23:00:00+00:00", "venue": "Philadelphia", "home_id": 1501, "home": "Ivory Coast", "away_id": 2382, "away": "Ecuador", "round": "Group Stage - 1", "group": "E"}, {"id": 1539002, "date": "2026-06-15T02:00:00+00:00", "venue": "Monterrey", "home_id": 5, "home": "Sweden", "away_id": 28, "away": "Tunisia", "round": "Group Stage - 1", "group": "F"}, {"id": 1489380, "date": "2026-06-15T16:00:00+00:00", "venue": "Atlanta", "home_id": 9, "home": "Spain", "away_id": 1533, "away": "Cape Verde Islands", "round": "Group Stage - 1", "group": "H"}, {"id": 1489377, "date": "2026-06-15T19:00:00+00:00", "venue": "Seattle", "home_id": 1, "home": "Belgium", "away_id": 32, "away": "Egypt", "round": "Group Stage - 1", "group": "G"}, {"id": 1489379, "date": "2026-06-15T22:00:00+00:00", "venue": "Miami", "home_id": 23, "home": "Saudi Arabia", "away_id": 7, "away": "Uruguay", "round": "Group Stage - 1", "group": "H"}, {"id": 1489378, "date": "2026-06-16T01:00:00+00:00", "venue": "Los Angeles", "home_id": 22, "home": "Iran", "away_id": 4673, "away": "New Zealand", "round": "Group Stage - 1", "group": "G"}, {"id": 1489383, "date": "2026-06-16T19:00:00+00:00", "venue": "New York New Jersey", "home_id": 2, "home": "France", "away_id": 13, "away": "Senegal", "round": "Group Stage - 1", "group": "I"}, {"id": 1539016, "date": "2026-06-16T22:00:00+00:00", "venue": "Boston", "home_id": 1567, "home": "Iraq", "away_id": 1090, "away": "Norway", "round": "Group Stage - 1", "group": "I"}, {"id": 1489381, "date": "2026-06-17T01:00:00+00:00", "venue": "Kansas City", "home_id": 26, "home": "Argentina", "away_id": 1532, "away": "Algeria", "round": "Group Stage - 1", "group": "J"}, {"id": 1489382, "date": "2026-06-17T04:00:00+00:00", "venue": "San Francisco Bay Area", "home_id": 775, "home": "Austria", "away_id": 1548, "away": "Jordan", "round": "Group Stage - 1", "group": "J"}, {"id": 1539003, "date": "2026-06-17T17:00:00+00:00", "venue": "Houston", "home_id": 27, "home": "Portugal", "away_id": 1508, "away": "Congo DR", "round": "Group Stage - 1", "group": "K"}, {"id": 1489384, "date": "2026-06-17T20:00:00+00:00", "venue": "Dallas", "home_id": 10, "home": "England", "away_id": 3, "away": "Croatia", "round": "Group Stage - 1", "group": "L"}, {"id": 1489385, "date": "2026-06-17T23:00:00+00:00", "venue": "Toronto", "home_id": 1504, "home": "Ghana", "away_id": 11, "away": "Panama", "round": "Group Stage - 1", "group": "L"}, {"id": 1489386, "date": "2026-06-18T02:00:00+00:00", "venue": "Mexico City", "home_id": 1568, "home": "Uzbekistan", "away_id": 8, "away": "Colombia", "round": "Group Stage - 1", "group": "K"}, {"id": 1539004, "date": "2026-06-18T16:00:00+00:00", "venue": "Atlanta", "home_id": 770, "home": "Czech Republic", "away_id": 1531, "away": "South Africa", "round": "Group Stage - 2", "group": "A"}, {"id": 1539005, "date": "2026-06-18T19:00:00+00:00", "venue": "Los Angeles", "home_id": 15, "home": "Switzerland", "away_id": 1113, "away": "Bosnia & Herzegovina", "round": "Group Stage - 2", "group": "B"}, {"id": 1489387, "date": "2026-06-18T22:00:00+00:00", "venue": "Vancouver", "home_id": 5529, "home": "Canada", "away_id": 1569, "away": "Qatar", "round": "Group Stage - 2", "group": "B"}, {"id": 1489388, "date": "2026-06-19T01:00:00+00:00", "venue": "Guadalajara", "home_id": 16, "home": "Mexico", "away_id": 17, "away": "South Korea", "round": "Group Stage - 2", "group": "A"}, {"id": 1489391, "date": "2026-06-19T19:00:00+00:00", "venue": "Seattle", "home_id": 2384, "home": "USA", "away_id": 20, "away": "Australia", "round": "Group Stage - 2", "group": "D"}, {"id": 1489390, "date": "2026-06-19T22:00:00+00:00", "venue": "Boston", "home_id": 1108, "home": "Scotland", "away_id": 31, "away": "Morocco", "round": "Group Stage - 2", "group": "C"}, {"id": 1489389, "date": "2026-06-20T00:30:00+00:00", "venue": "Philadelphia", "home_id": 6, "home": "Brazil", "away_id": 2386, "away": "Haiti", "round": "Group Stage - 2", "group": "C"}, {"id": 1539006, "date": "2026-06-20T03:00:00+00:00", "venue": "San Francisco Bay Area", "home_id": 777, "home": "Türkiye", "away_id": 2380, "away": "Paraguay", "round": "Group Stage - 2", "group": "D"}, {"id": 1539007, "date": "2026-06-20T17:00:00+00:00", "venue": "Houston", "home_id": 1118, "home": "Netherlands", "away_id": 5, "away": "Sweden", "round": "Group Stage - 2", "group": "F"}, {"id": 1489393, "date": "2026-06-20T20:00:00+00:00", "venue": "Toronto", "home_id": 25, "home": "Germany", "away_id": 1501, "away": "Ivory Coast", "round": "Group Stage - 2", "group": "E"}, {"id": 1489392, "date": "2026-06-21T00:00:00+00:00", "venue": "Kansas City", "home_id": 2382, "home": "Ecuador", "away_id": 5530, "away": "Curaçao", "round": "Group Stage - 2", "group": "E"}, {"id": 1489394, "date": "2026-06-21T04:00:00+00:00", "venue": "Monterrey", "home_id": 28, "home": "Tunisia", "away_id": 12, "away": "Japan", "round": "Group Stage - 2", "group": "F"}, {"id": 1489397, "date": "2026-06-21T16:00:00+00:00", "venue": "Atlanta", "home_id": 9, "home": "Spain", "away_id": 23, "away": "Saudi Arabia", "round": "Group Stage - 2", "group": "H"}, {"id": 1489395, "date": "2026-06-21T19:00:00+00:00", "venue": "Los Angeles", "home_id": 1, "home": "Belgium", "away_id": 22, "away": "Iran", "round": "Group Stage - 2", "group": "G"}, {"id": 1489398, "date": "2026-06-21T22:00:00+00:00", "venue": "Miami", "home_id": 7, "home": "Uruguay", "away_id": 1533, "away": "Cape Verde Islands", "round": "Group Stage - 2", "group": "H"}, {"id": 1489396, "date": "2026-06-22T01:00:00+00:00", "venue": "Vancouver", "home_id": 4673, "home": "New Zealand", "away_id": 32, "away": "Egypt", "round": "Group Stage - 2", "group": "G"}, {"id": 1489399, "date": "2026-06-22T17:00:00+00:00", "venue": "Dallas", "home_id": 26, "home": "Argentina", "away_id": 775, "away": "Austria", "round": "Group Stage - 2", "group": "J"}, {"id": 1539017, "date": "2026-06-22T21:00:00+00:00", "venue": "Philadelphia", "home_id": 2, "home": "France", "away_id": 1567, "away": "Iraq", "round": "Group Stage - 2", "group": "I"}, {"id": 1489401, "date": "2026-06-23T00:00:00+00:00", "venue": "New York New Jersey", "home_id": 1090, "home": "Norway", "away_id": 13, "away": "Senegal", "round": "Group Stage - 2", "group": "I"}, {"id": 1489400, "date": "2026-06-23T03:00:00+00:00", "venue": "San Francisco Bay Area", "home_id": 1548, "home": "Jordan", "away_id": 1532, "away": "Algeria", "round": "Group Stage - 2", "group": "J"}, {"id": 1489404, "date": "2026-06-23T17:00:00+00:00", "venue": "Houston", "home_id": 27, "home": "Portugal", "away_id": 1568, "away": "Uzbekistan", "round": "Group Stage - 2", "group": "K"}, {"id": 1489402, "date": "2026-06-23T20:00:00+00:00", "venue": "Boston", "home_id": 10, "home": "England", "away_id": 1504, "away": "Ghana", "round": "Group Stage - 2", "group": "L"}, {"id": 1489403, "date": "2026-06-23T23:00:00+00:00", "venue": "Toronto", "home_id": 11, "home": "Panama", "away_id": 3, "away": "Croatia", "round": "Group Stage - 2", "group": "L"}, {"id": 1539008, "date": "2026-06-24T02:00:00+00:00", "venue": "Guadalajara", "home_id": 8, "home": "Colombia", "away_id": 1508, "away": "Congo DR", "round": "Group Stage - 2", "group": "K"}, {"id": 1489408, "date": "2026-06-24T19:00:00+00:00", "venue": "Vancouver", "home_id": 15, "home": "Switzerland", "away_id": 5529, "away": "Canada", "round": "Group Stage - 3", "group": "B"}, {"id": 1539009, "date": "2026-06-24T19:00:00+00:00", "venue": "Seattle", "home_id": 1113, "home": "Bosnia & Herzegovina", "away_id": 1569, "away": "Qatar", "round": "Group Stage - 3", "group": "B"}, {"id": 1489405, "date": "2026-06-24T22:00:00+00:00", "venue": "Atlanta", "home_id": 31, "home": "Morocco", "away_id": 2386, "away": "Haiti", "round": "Group Stage - 3", "group": "C"}, {"id": 1489406, "date": "2026-06-24T22:00:00+00:00", "venue": "Miami", "home_id": 1108, "home": "Scotland", "away_id": 6, "away": "Brazil", "round": "Group Stage - 3", "group": "C"}, {"id": 1539010, "date": "2026-06-25T01:00:00+00:00", "venue": "Mexico City", "home_id": 770, "home": "Czech Republic", "away_id": 16, "away": "Mexico", "round": "Group Stage - 3", "group": "A"}, {"id": 1489407, "date": "2026-06-25T01:00:00+00:00", "venue": "Monterrey", "home_id": 1531, "home": "South Africa", "away_id": 17, "away": "South Korea", "round": "Group Stage - 3", "group": "A"}, {"id": 1489410, "date": "2026-06-25T20:00:00+00:00", "venue": "New York New Jersey", "home_id": 2382, "home": "Ecuador", "away_id": 25, "away": "Germany", "round": "Group Stage - 3", "group": "E"}, {"id": 1489409, "date": "2026-06-25T20:00:00+00:00", "venue": "Philadelphia", "home_id": 5530, "home": "Curaçao", "away_id": 1501, "away": "Ivory Coast", "round": "Group Stage - 3", "group": "E"}, {"id": 1539011, "date": "2026-06-25T23:00:00+00:00", "venue": "Dallas", "home_id": 12, "home": "Japan", "away_id": 5, "away": "Sweden", "round": "Group Stage - 3", "group": "F"}, {"id": 1489412, "date": "2026-06-25T23:00:00+00:00", "venue": "Kansas City", "home_id": 28, "home": "Tunisia", "away_id": 1118, "away": "Netherlands", "round": "Group Stage - 3", "group": "F"}, {"id": 1539012, "date": "2026-06-26T02:00:00+00:00", "venue": "Los Angeles", "home_id": 777, "home": "Türkiye", "away_id": 2384, "away": "USA", "round": "Group Stage - 3", "group": "D"}, {"id": 1489411, "date": "2026-06-26T02:00:00+00:00", "venue": "San Francisco Bay Area", "home_id": 2380, "home": "Paraguay", "away_id": 20, "away": "Australia", "round": "Group Stage - 3", "group": "D"}, {"id": 1539074, "date": "2026-06-26T19:00:00+00:00", "venue": "Toronto", "home_id": 13, "home": "Senegal", "away_id": 1567, "away": "Iraq", "round": "Group Stage - 3", "group": "I"}, {"id": 1489416, "date": "2026-06-26T19:00:00+00:00", "venue": "Boston", "home_id": 1090, "home": "Norway", "away_id": 2, "away": "France", "round": "Group Stage - 3", "group": "I"}, {"id": 1489417, "date": "2026-06-27T00:00:00+00:00", "venue": "Guadalajara", "home_id": 7, "home": "Uruguay", "away_id": 9, "away": "Spain", "round": "Group Stage - 3", "group": "H"}, {"id": 1489413, "date": "2026-06-27T00:00:00+00:00", "venue": "Houston", "home_id": 1533, "home": "Cape Verde Islands", "away_id": 23, "away": "Saudi Arabia", "round": "Group Stage - 3", "group": "H"}, {"id": 1489414, "date": "2026-06-27T03:00:00+00:00", "venue": "Seattle", "home_id": 32, "home": "Egypt", "away_id": 22, "away": "Iran", "round": "Group Stage - 3", "group": "G"}, {"id": 1489415, "date": "2026-06-27T03:00:00+00:00", "venue": "Vancouver", "home_id": 4673, "home": "New Zealand", "away_id": 1, "away": "Belgium", "round": "Group Stage - 3", "group": "G"}, {"id": 1489420, "date": "2026-06-27T21:00:00+00:00", "venue": "Philadelphia", "home_id": 3, "home": "Croatia", "away_id": 1504, "away": "Ghana", "round": "Group Stage - 3", "group": "L"}, {"id": 1489422, "date": "2026-06-27T21:00:00+00:00", "venue": "New York New Jersey", "home_id": 11, "home": "Panama", "away_id": 10, "away": "England", "round": "Group Stage - 3", "group": "L"}, {"id": 1489419, "date": "2026-06-27T23:30:00+00:00", "venue": "Miami", "home_id": 8, "home": "Colombia", "away_id": 27, "away": "Portugal", "round": "Group Stage - 3", "group": "K"}, {"id": 1539013, "date": "2026-06-27T23:30:00+00:00", "venue": "Atlanta", "home_id": 1508, "home": "Congo DR", "away_id": 1568, "away": "Uzbekistan", "round": "Group Stage - 3", "group": "K"}, {"id": 1489418, "date": "2026-06-28T02:00:00+00:00", "venue": "Kansas City", "home_id": 1532, "home": "Algeria", "away_id": 775, "away": "Austria", "round": "Group Stage - 3", "group": "J"}, {"id": 1489421, "date": "2026-06-28T02:00:00+00:00", "venue": "Dallas", "home_id": 1548, "home": "Jordan", "away_id": 26, "away": "Argentina", "round": "Group Stage - 3", "group": "J"}], "groups": {"A": [{"id": 16, "name": "Mexico", "logo": "https://media.api-sports.io/football/teams/16.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1531, "name": "South Africa", "logo": "https://media.api-sports.io/football/teams/1531.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 17, "name": "South Korea", "logo": "https://media.api-sports.io/football/teams/17.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 770, "name": "Czech Republic", "logo": "https://media.api-sports.io/football/teams/770.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "B": [{"id": 5529, "name": "Canada", "logo": "https://media.api-sports.io/football/teams/5529.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1113, "name": "Bosnia & Herzegovina", "logo": "https://media.api-sports.io/football/teams/1113.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1569, "name": "Qatar", "logo": "https://media.api-sports.io/football/teams/1569.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 15, "name": "Switzerland", "logo": "https://media.api-sports.io/football/teams/15.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "C": [{"id": 6, "name": "Brazil", "logo": "https://media.api-sports.io/football/teams/6.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 31, "name": "Morocco", "logo": "https://media.api-sports.io/football/teams/31.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 2386, "name": "Haiti", "logo": "https://media.api-sports.io/football/teams/2386.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1108, "name": "Scotland", "logo": "https://media.api-sports.io/football/teams/1108.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "D": [{"id": 2384, "name": "USA", "logo": "https://media.api-sports.io/football/teams/2384.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 2380, "name": "Paraguay", "logo": "https://media.api-sports.io/football/teams/2380.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 20, "name": "Australia", "logo": "https://media.api-sports.io/football/teams/20.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 777, "name": "Türkiye", "logo": "https://media.api-sports.io/football/teams/777.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "E": [{"id": 25, "name": "Germany", "logo": "https://media.api-sports.io/football/teams/25.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 5530, "name": "Curaçao", "logo": "https://media.api-sports.io/football/teams/5530.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1501, "name": "Ivory Coast", "logo": "https://media.api-sports.io/football/teams/1501.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 2382, "name": "Ecuador", "logo": "https://media.api-sports.io/football/teams/2382.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "F": [{"id": 1118, "name": "Netherlands", "logo": "https://media.api-sports.io/football/teams/1118.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 12, "name": "Japan", "logo": "https://media.api-sports.io/football/teams/12.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 5, "name": "Sweden", "logo": "https://media.api-sports.io/football/teams/5.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 28, "name": "Tunisia", "logo": "https://media.api-sports.io/football/teams/28.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "G": [{"id": 1, "name": "Belgium", "logo": "https://media.api-sports.io/football/teams/1.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 32, "name": "Egypt", "logo": "https://media.api-sports.io/football/teams/32.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 22, "name": "Iran", "logo": "https://media.api-sports.io/football/teams/22.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 4673, "name": "New Zealand", "logo": "https://media.api-sports.io/football/teams/4673.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "H": [{"id": 9, "name": "Spain", "logo": "https://media.api-sports.io/football/teams/9.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1533, "name": "Cape Verde Islands", "logo": "https://media.api-sports.io/football/teams/1533.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 23, "name": "Saudi Arabia", "logo": "https://media.api-sports.io/football/teams/23.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 7, "name": "Uruguay", "logo": "https://media.api-sports.io/football/teams/7.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "I": [{"id": 2, "name": "France", "logo": "https://media.api-sports.io/football/teams/2.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 13, "name": "Senegal", "logo": "https://media.api-sports.io/football/teams/13.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1567, "name": "Iraq", "logo": "https://media.api-sports.io/football/teams/1567.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1090, "name": "Norway", "logo": "https://media.api-sports.io/football/teams/1090.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "J": [{"id": 26, "name": "Argentina", "logo": "https://media.api-sports.io/football/teams/26.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1532, "name": "Algeria", "logo": "https://media.api-sports.io/football/teams/1532.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 775, "name": "Austria", "logo": "https://media.api-sports.io/football/teams/775.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1548, "name": "Jordan", "logo": "https://media.api-sports.io/football/teams/1548.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "K": [{"id": 27, "name": "Portugal", "logo": "https://media.api-sports.io/football/teams/27.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1508, "name": "Congo DR", "logo": "https://media.api-sports.io/football/teams/1508.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1568, "name": "Uzbekistan", "logo": "https://media.api-sports.io/football/teams/1568.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 8, "name": "Colombia", "logo": "https://media.api-sports.io/football/teams/8.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}], "L": [{"id": 10, "name": "England", "logo": "https://media.api-sports.io/football/teams/10.png", "rank": 1, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 3, "name": "Croatia", "logo": "https://media.api-sports.io/football/teams/3.png", "rank": 2, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 1504, "name": "Ghana", "logo": "https://media.api-sports.io/football/teams/1504.png", "rank": 3, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}, {"id": 11, "name": "Panama", "logo": "https://media.api-sports.io/football/teams/11.png", "rank": 4, "points": 0, "played": 0, "win": 0, "draw": 0, "lose": 0, "gf": 0, "ga": 0}]}};
+const GROUP_NAMES = Object.keys(FIXTURES_DATA.groups).sort();
+
+let currentGroup = GROUP_NAMES[0];
+let liveGroups = null;
+let liveResults = null;
+
+const apiUrlInput = document.getElementById('apiUrl');
+const groupTabs = document.getElementById('groupTabs');
+const standingsTitle = document.getElementById('standingsTitle');
+const standingsTable = document.getElementById('standingsTable');
+const recentResultsEl = document.getElementById('recentResults');
+const matchesContainer = document.getElementById('matches');
+
+function apiUrl() {
+    return apiUrlInput.value.replace(/\/$/, '');
+}
+
+// --- Onglets de groupes ---
+GROUP_NAMES.forEach(g => {
+    const btn = document.createElement('button');
+    btn.className = 'group-tab' + (g === currentGroup ? ' active' : '');
+    btn.textContent = 'Groupe ' + g;
+    btn.dataset.group = g;
+    btn.addEventListener('click', () => {
+        currentGroup = g;
+        document.querySelectorAll('.group-tab').forEach(b => b.classList.toggle('active', b.dataset.group === g));
+        renderGroup();
+    });
+    groupTabs.appendChild(btn);
+});
+
+// --- Classement ---
+function renderStandings() {
+    standingsTitle.textContent = `📊 Classement — Groupe ${currentGroup}`;
+    const teams = (liveGroups && liveGroups[currentGroup]) || FIXTURES_DATA.groups[currentGroup];
+
+    let html = `<tr><th></th><th style="text-align:left">Équipe</th><th>J</th><th>G</th><th>N</th><th>P</th><th>BP</th><th>BC</th><th>Pts</th></tr>`;
+    teams.forEach((t, i) => {
+        html += `<tr>
+            <td>${i + 1}</td>
+            <td class="team-name">${t.name}</td>
+            <td>${t.played}</td>
+            <td>${t.win}</td>
+            <td>${t.draw}</td>
+            <td>${t.lose}</td>
+            <td>${t.gf}</td>
+            <td>${t.ga}</td>
+            <td><strong>${t.points}</strong></td>
+        </tr>`;
+    });
+    standingsTable.innerHTML = html;
+}
+
+// --- Derniers résultats du groupe ---
+function renderRecentResults() {
+    const teamIds = new Set(FIXTURES_DATA.groups[currentGroup].map(t => t.id));
+    const results = (liveResults || []).filter(r => teamIds.has(r.home_id) && teamIds.has(r.away_id));
+
+    if (results.length === 0) {
+        recentResultsEl.innerHTML = '<p class="no-data">Aucun match joué pour le moment.</p>';
+        return;
+    }
+
+    recentResultsEl.innerHTML = results.map(r => `
+        <div class="recent-result">
+            <span>${r.home} ${r.home_goals} - ${r.away_goals} ${r.away}</span>
+            <span>${r.date}</span>
+        </div>
+    `).join('');
+}
+
+// --- Matchs du groupe ---
+function renderMatches() {
+    matchesContainer.innerHTML = '';
+    const fixtures = FIXTURES_DATA.fixtures.filter(f => f.group === currentGroup);
+
+    let lastRound = null;
+    fixtures.forEach((match) => {
+        const idx = FIXTURES_DATA.fixtures.indexOf(match);
+        if (match.round !== lastRound) {
+            lastRound = match.round;
+            const roundEl = document.createElement('div');
+            roundEl.className = 'round-title';
+            roundEl.textContent = lastRound;
+            matchesContainer.appendChild(roundEl);
+        }
+
+        const date = new Date(match.date);
+        const dateStr = date.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+        const card = document.createElement('div');
+        card.className = 'match-card';
+        card.innerHTML = `
+            <div class="match-header">
+                <div>
+                    <div class="match-teams">${match.home} 🆚 ${match.away}</div>
+                    <div class="match-meta">${dateStr} — ${match.venue}</div>
+                </div>
+                <button class="predict-btn" data-idx="${idx}">Prédire</button>
+            </div>
+            <div class="result" id="result-${idx}" style="display:none;"></div>
+        `;
+        matchesContainer.appendChild(card);
+    });
+}
+
+function renderGroup() {
+    renderStandings();
+    renderRecentResults();
+    renderMatches();
+}
+
+// --- Chargement des données live ---
+async function loadLiveData() {
+    try {
+        const [groupsRes, resultsRes] = await Promise.all([
+            fetch(`${apiUrl()}/wc_groups`),
+            fetch(`${apiUrl()}/wc_results`)
+        ]);
+        if (groupsRes.ok) {
+            const data = await groupsRes.json();
+            liveGroups = data.groups;
+        }
+        if (resultsRes.ok) {
+            const data = await resultsRes.json();
+            liveResults = data.results;
+        }
+    } catch (err) {
+        console.warn('Impossible de charger les données live, utilisation des données statiques.', err);
+    }
+    renderGroup();
+}
+
+// --- Prédiction d'un match ---
+matchesContainer.addEventListener('click', async (e) => {
+    if (!e.target.classList.contains('predict-btn')) return;
+
+    const idx = e.target.dataset.idx;
+    const match = FIXTURES_DATA.fixtures[idx];
+    const resultEl = document.getElementById(`result-${idx}`);
+
+    e.target.disabled = true;
+    e.target.textContent = 'Calcul...';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<p>⏳ Récupération des données...</p>';
+
+    try {
+        const response = await fetch(`${apiUrl()}/predict_wc`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                home_team_id: match.home_id,
+                away_team_id: match.away_id
+            })
+        });
+
+        if (!response.ok) throw new Error(`Erreur API (${response.status})`);
+
+        const data = await response.json();
+        const home = Math.round(data.homeWin);
+        const draw = Math.round(data.draw);
+        const away = Math.round(data.awayWin);
+
+        let h2hHtml = '';
+        if (data.h2h && data.h2h.length > 0) {
+            h2hHtml = `
+                <div class="h2h">
+                    <div class="h2h-title">🤝 Confrontations précédentes</div>
+                    ${data.h2h.map(m => `<div>${m.date} — ${m.home} ${m.home_goals} - ${m.away_goals} ${m.away} (${m.competition})</div>`).join('')}
+                </div>
+            `;
+        } else {
+            h2hHtml = `<div class="h2h"><div class="h2h-title">🤝 Confrontations précédentes</div><div class="no-data">Aucune confrontation récente trouvée.</div></div>`;
+        }
+
+        resultEl.innerHTML = `
+            <div class="bars">
+                <div class="bar home" style="width:${home}%">${home >= 8 ? home + '%' : ''}</div>
+                <div class="bar draw" style="width:${draw}%">${draw >= 8 ? draw + '%' : ''}</div>
+                <div class="bar away" style="width:${away}%">${away >= 8 ? away + '%' : ''}</div>
+            </div>
+            <div class="result-labels">
+                <span>🏠 ${match.home}</span>
+                <span>🤝 Nul</span>
+                <span>✈️ ${match.away}</span>
+            </div>
+            ${h2hHtml}
+        `;
+    } catch (err) {
+        resultEl.innerHTML = `<p class="error">❌ ${err.message}. Vérifiez que l'API tourne sur l'URL configurée.</p>`;
+    } finally {
+        e.target.disabled = false;
+        e.target.textContent = 'Prédire';
+    }
+});
+
+apiUrlInput.addEventListener('change', loadLiveData);
+
+renderGroup();
+loadLiveData();
+</script>
+</body>
+</html>

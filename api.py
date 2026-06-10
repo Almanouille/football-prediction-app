@@ -265,6 +265,256 @@ def predict():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+# IDs des équipes hôtes de la Coupe du Monde 2026 (avantage du terrain)
+WC_HOST_TEAM_IDS = {2384, 5529, 16}  # USA, Canada, Mexico
+
+# Points FIFA approximatifs (2025) des 48 équipes qualifiées
+# Sert de référence sur le "niveau" réel de l'équipe, indépendamment de ses
+# derniers adversaires (une équipe qui écrase des voisins faibles ne doit pas
+# paraître aussi forte qu'une grande nation européenne)
+WC_FIFA_POINTS = {
+    1: 1735,    # Belgium
+    2: 1850,    # France
+    3: 1715,    # Croatia
+    5: 1450,    # Sweden
+    6: 1776,    # Brazil
+    7: 1701,    # Uruguay
+    8: 1709,    # Colombia
+    9: 1854,    # Spain
+    10: 1819,   # England
+    11: 1480,   # Panama
+    12: 1652,   # Japan
+    13: 1630,   # Senegal
+    15: 1635,   # Switzerland
+    16: 1641,   # Mexico
+    17: 1530,   # South Korea
+    20: 1530,   # Australia
+    22: 1637,   # Iran
+    23: 1450,   # Saudi Arabia
+    25: 1716,   # Germany
+    26: 1886,   # Argentina
+    27: 1750,   # Portugal
+    28: 1507,   # Tunisia
+    31: 1715,   # Morocco
+    32: 1487,   # Egypt
+    770: 1480,  # Czech Republic
+    775: 1580,  # Austria
+    777: 1560,  # Türkiye
+    1090: 1500, # Norway
+    1108: 1500, # Scotland
+    1113: 1450, # Bosnia & Herzegovina
+    1118: 1748, # Netherlands
+    1501: 1470, # Ivory Coast
+    1504: 1410, # Ghana
+    1508: 1380, # Congo DR
+    1531: 1380, # South Africa
+    1532: 1470, # Algeria
+    1533: 1380, # Cape Verde Islands
+    1548: 1410, # Jordan
+    1567: 1390, # Iraq
+    1568: 1410, # Uzbekistan
+    1569: 1410, # Qatar
+    2380: 1450, # Paraguay
+    2382: 1622, # Ecuador
+    2384: 1672, # USA
+    2386: 1280, # Haiti
+    4673: 1280, # New Zealand
+    5529: 1577, # Canada
+    5530: 1300, # Curaçao
+}
+
+def get_national_team_form(team_id, last=10):
+    """Récupère la forme récente d'une équipe nationale (toutes compétitions confondues)"""
+    data = make_api_request('fixtures', {'team': team_id, 'last': last})
+    fixtures = data.get('response', []) if data else []
+
+    played = len(fixtures)
+    goals_for = 0
+    goals_against = 0
+    form_points = 0
+
+    for f in fixtures:
+        home_id = f['teams']['home']['id']
+        gh = f['goals']['home'] or 0
+        ga = f['goals']['away'] or 0
+
+        if home_id == team_id:
+            scored, conceded = gh, ga
+        else:
+            scored, conceded = ga, gh
+
+        goals_for += scored
+        goals_against += conceded
+
+        if scored > conceded:
+            form_points += 3
+        elif scored == conceded:
+            form_points += 1
+
+    if played == 0:
+        return {'goals_for_avg': 1.0, 'goals_against_avg': 1.0, 'form_points': 0, 'played': 0}
+
+    return {
+        'goals_for_avg': goals_for / played,
+        'goals_against_avg': goals_against / played,
+        'form_points': form_points,
+        'played': played
+    }
+
+
+@app.route('/predict_wc', methods=['POST'])
+def predict_wc():
+    """Prédiction simplifiée pour les matchs de Coupe du Monde (équipes nationales)"""
+    try:
+        data = request.json
+        home_team_id = data['home_team_id']
+        away_team_id = data['away_team_id']
+
+        print(f"🏆 Prédiction CDM : équipe {home_team_id} vs équipe {away_team_id}")
+
+        home_form = get_national_team_form(home_team_id)
+        away_form = get_national_team_form(away_team_id)
+
+        # Historique des confrontations directes (2 derniers matchs)
+        h2h_data = make_api_request('fixtures/headtohead', {
+            'h2h': f"{home_team_id}-{away_team_id}",
+            'last': 2
+        })
+        h2h_matches = []
+        for f in (h2h_data.get('response', []) if h2h_data else []):
+            h2h_matches.append({
+                'date': f['fixture']['date'][:10],
+                'home': f['teams']['home']['name'],
+                'away': f['teams']['away']['name'],
+                'home_goals': f['goals']['home'],
+                'away_goals': f['goals']['away'],
+                'competition': f['league']['name']
+            })
+
+        home_fifa = WC_FIFA_POINTS.get(home_team_id, 1400)
+        away_fifa = WC_FIFA_POINTS.get(away_team_id, 1400)
+
+        home_strength = home_fifa / 20 \
+            + (home_form['goals_for_avg'] - home_form['goals_against_avg']) * 5 \
+            + home_form['form_points'] * 0.3
+        away_strength = away_fifa / 20 \
+            + (away_form['goals_for_avg'] - away_form['goals_against_avg']) * 5 \
+            + away_form['form_points'] * 0.3
+
+        diff = home_strength - away_strength
+
+        # Avantage du terrain pour les pays hôtes
+        if home_team_id in WC_HOST_TEAM_IDS:
+            diff += 8
+        if away_team_id in WC_HOST_TEAM_IDS:
+            diff -= 8
+
+        home_win = max(8, min(82, 40 + diff * 1.2))
+        draw = max(10, min(30, 27 - abs(diff) * 0.25))
+        away_win = 100 - home_win - draw
+
+        if away_win < 8:
+            deficit = 8 - away_win
+            away_win = 8
+            home_win -= deficit
+
+        total = home_win + draw + away_win
+        home_win, draw, away_win = (home_win / total * 100, draw / total * 100, away_win / total * 100)
+
+        probas = {'H': home_win, 'D': draw, 'A': away_win}
+        prediction = max(probas, key=probas.get)
+
+        result = {
+            'homeWin': float(home_win),
+            'draw': float(draw),
+            'awayWin': float(away_win),
+            'confidence': float(probas[prediction]),
+            'prediction': prediction,
+            'model': 'Forme récente (Coupe du Monde 2026)',
+            'homeForm': home_form,
+            'awayForm': away_form,
+            'homeFifaPoints': home_fifa,
+            'awayFifaPoints': away_fifa,
+            'h2h': h2h_matches
+        }
+
+        print(f"✅ Prédiction CDM : H={home_win:.1f}% D={draw:.1f}% A={away_win:.1f}%")
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"❌ Erreur : {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/wc_groups', methods=['GET'])
+def wc_groups():
+    """Classements actuels des groupes de la Coupe du Monde 2026"""
+    try:
+        data = make_api_request('standings', {'league': 1, 'season': 2026})
+        standings = data['response'][0]['league']['standings'] if data and data.get('response') else []
+
+        groups = {}
+        for grp in standings:
+            if not grp:
+                continue
+            gname = grp[0]['group'].replace('Group ', '')
+            if len(gname) != 1:
+                continue  # ignore "Ranking of third-placed teams"
+            groups[gname] = []
+            for t in grp:
+                groups[gname].append({
+                    'id': t['team']['id'],
+                    'name': t['team']['name'],
+                    'logo': t['team']['logo'],
+                    'rank': t['rank'],
+                    'points': t['points'],
+                    'played': t['all']['played'],
+                    'win': t['all']['win'],
+                    'draw': t['all']['draw'],
+                    'lose': t['all']['lose'],
+                    'gf': t['all']['goals']['for'],
+                    'ga': t['all']['goals']['against']
+                })
+
+        return jsonify({'groups': groups})
+    except Exception as e:
+        print(f"❌ Erreur : {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/wc_results', methods=['GET'])
+def wc_results():
+    """Résultats des matchs déjà joués de la Coupe du Monde 2026"""
+    try:
+        data = make_api_request('fixtures', {'league': 1, 'season': 2026, 'status': 'FT-AET-PEN'})
+        fixtures = data.get('response', []) if data else []
+
+        results = []
+        for f in fixtures:
+            results.append({
+                'date': f['fixture']['date'][:10],
+                'round': f['league']['round'],
+                'home': f['teams']['home']['name'],
+                'home_id': f['teams']['home']['id'],
+                'away': f['teams']['away']['name'],
+                'away_id': f['teams']['away']['id'],
+                'home_goals': f['goals']['home'],
+                'away_goals': f['goals']['away']
+            })
+
+        return jsonify({'results': results})
+    except Exception as e:
+        print(f"❌ Erreur : {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint pour vérifier que l'API fonctionne"""
