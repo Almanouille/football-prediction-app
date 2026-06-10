@@ -516,6 +516,35 @@ def wc_results():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/wc_live', methods=['GET'])
+def wc_live():
+    """Matchs de la Coupe du Monde 2026 actuellement en direct"""
+    try:
+        data = make_api_request('fixtures', {'league': 1, 'season': 2026, 'live': 'all'})
+        fixtures = data.get('response', []) if data else []
+
+        live = []
+        for f in fixtures:
+            live.append({
+                'id': f['fixture']['id'],
+                'status': f['fixture']['status']['short'],
+                'elapsed': f['fixture']['status']['elapsed'],
+                'home': f['teams']['home']['name'],
+                'home_id': f['teams']['home']['id'],
+                'away': f['teams']['away']['name'],
+                'away_id': f['teams']['away']['id'],
+                'home_goals': f['goals']['home'],
+                'away_goals': f['goals']['away']
+            })
+
+        return jsonify({'live': live})
+    except Exception as e:
+        print(f"❌ Erreur : {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/wc_knockout', methods=['GET'])
 def wc_knockout():
     """Matchs à élimination directe de la Coupe du Monde 2026 (huitièmes, quarts, demis, finale)"""
