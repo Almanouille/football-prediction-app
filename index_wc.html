@@ -181,8 +181,12 @@
     <div class="loading-spinner" id="loadingSpinner"><div class="spinner"></div> Chargement des classements et résultats en direct...</div>
 
     <div class="group-tabs" id="viewTabs">
+        <button class="group-tab" data-view="upcoming">⏭️ À venir</button>
         <button class="group-tab" data-view="today">📅 Aujourd'hui</button>
+        <button class="group-tab" data-view="tomorrow">🌅 Demain</button>
+        <button class="group-tab" data-view="dayafter">📆 Surlendemain</button>
         <button class="group-tab" data-view="knockout">🏆 Phases finales</button>
+        <button class="group-tab" data-view="favorites">⭐ Favoris</button>
         <button class="group-tab" data-view="mine">📋 Mes pronostics</button>
     </div>
 
@@ -340,17 +344,94 @@ function renderMatches() {
     });
 }
 
-// --- Matchs du jour (tous groupes confondus) ---
-function renderToday() {
+function dateOffset(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+}
+
+// --- Matchs d'un jour donné (tous groupes confondus) ---
+function renderDay(dayOffset, emptyLabel) {
     matchesContainer.innerHTML = '';
-    const today = new Date().toISOString().slice(0, 10);
-    const fixtures = FIXTURES_DATA.fixtures.filter(f => f.date.slice(0, 10) === today);
+    const target = dateOffset(dayOffset);
+    const fixtures = FIXTURES_DATA.fixtures.filter(f => f.date.slice(0, 10) === target);
 
     if (fixtures.length === 0) {
-        matchesContainer.innerHTML = '<p class="no-data">Aucun match prévu aujourd\'hui.</p>';
+        matchesContainer.innerHTML = `<p class="no-data">${emptyLabel}</p>`;
         return;
     }
     fixtures.forEach(match => matchesContainer.appendChild(buildMatchCard(match, true)));
+}
+
+// --- Tous les matchs à venir (non encore joués) ---
+function renderUpcoming() {
+    matchesContainer.innerHTML = '';
+    const playedIds = new Set((liveResults || []).map(r => r.id));
+    const fixtures = FIXTURES_DATA.fixtures.filter(f => !playedIds.has(f.id));
+
+    if (fixtures.length === 0) {
+        matchesContainer.innerHTML = '<p class="no-data">Tous les matchs de la phase de groupes ont été joués.</p>';
+        return;
+    }
+
+    let lastDate = null;
+    fixtures.forEach(match => {
+        const d = match.date.slice(0, 10);
+        if (d !== lastDate) {
+            lastDate = d;
+            const dateEl = document.createElement('div');
+            dateEl.className = 'round-title';
+            dateEl.textContent = new Date(match.date).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' });
+            matchesContainer.appendChild(dateEl);
+        }
+        matchesContainer.appendChild(buildMatchCard(match, true));
+    });
+}
+
+// --- Favoris ---
+function getFavorites() {
+    return JSON.parse(localStorage.getItem('wcFavorites') || '[]');
+}
+
+function toggleFavorite(teamId) {
+    let favs = getFavorites();
+    if (favs.includes(teamId)) favs = favs.filter(id => id !== teamId);
+    else favs.push(teamId);
+    localStorage.setItem('wcFavorites', JSON.stringify(favs));
+    renderFavorites();
+}
+
+function renderFavorites() {
+    const favs = getFavorites();
+    const playedIds = new Set((liveResults || []).map(r => r.id));
+
+    let html = '<div class="panel"><h2>⭐ Choisis tes équipes favorites</h2><div class="group-tabs">';
+    Object.entries(FIXTURES_DATA.teams).forEach(([id, name]) => {
+        const teamId = parseInt(id);
+        const active = favs.includes(teamId) ? ' active' : '';
+        html += `<button class="group-tab favorite-toggle${active}" data-team="${teamId}"><img class="team-logo" src="${logoFor(teamId)}" alt="">${name}</button>`;
+    });
+    html += '</div></div>';
+
+    if (favs.length > 0) {
+        const fixtures = FIXTURES_DATA.fixtures.filter(f => (favs.includes(f.home_id) || favs.includes(f.away_id)) && !playedIds.has(f.id));
+        html += '<div id="favoriteMatches"></div>';
+        extraView.innerHTML = html;
+
+        const container = document.getElementById('favoriteMatches');
+        if (fixtures.length === 0) {
+            container.innerHTML = '<p class="no-data">Aucun match à venir pour tes équipes favorites.</p>';
+        } else {
+            fixtures.forEach(match => container.appendChild(buildMatchCard(match, true)));
+        }
+    } else {
+        html += '<p class="no-data">Sélectionne une ou plusieurs équipes pour voir leurs prochains matchs.</p>';
+        extraView.innerHTML = html;
+    }
+
+    extraView.querySelectorAll('.favorite-toggle').forEach(btn => {
+        btn.addEventListener('click', () => toggleFavorite(parseInt(btn.dataset.team)));
+    });
 }
 
 // --- Phases finales ---
@@ -434,12 +515,15 @@ function render() {
         matchesContainer.style.display = '';
         extraView.style.display = 'none';
         renderGroup();
-    } else if (currentView === 'today') {
+    } else if (['upcoming', 'today', 'tomorrow', 'dayafter'].includes(currentView)) {
         standingsPanel.style.display = 'none';
         recentResultsPanel.style.display = 'none';
         matchesContainer.style.display = '';
         extraView.style.display = 'none';
-        renderToday();
+        if (currentView === 'upcoming') renderUpcoming();
+        else if (currentView === 'today') renderDay(0, "Aucun match prévu aujourd'hui.");
+        else if (currentView === 'tomorrow') renderDay(1, 'Aucun match prévu demain.');
+        else renderDay(2, 'Aucun match prévu après-demain.');
     } else {
         standingsPanel.style.display = 'none';
         recentResultsPanel.style.display = 'none';
@@ -447,6 +531,7 @@ function render() {
         matchesContainer.innerHTML = '';
         extraView.style.display = '';
         if (currentView === 'knockout') renderKnockout();
+        else if (currentView === 'favorites') renderFavorites();
         else renderMyPredictions();
     }
 }
@@ -545,7 +630,7 @@ function renderConfidence(stats) {
 }
 
 // --- Prédiction d'un match ---
-matchesContainer.addEventListener('click', async (e) => {
+async function handleResultClick(e) {
     if (e.target.classList.contains('share-btn')) {
         const text = e.target.dataset.share;
         try {
@@ -620,7 +705,10 @@ matchesContainer.addEventListener('click', async (e) => {
         e.target.disabled = false;
         e.target.textContent = 'Prédire';
     }
-});
+}
+
+matchesContainer.addEventListener('click', handleResultClick);
+extraView.addEventListener('click', handleResultClick);
 
 apiUrlInput.addEventListener('change', () => {
     ['wcCacheGroups', 'wcCacheResults', 'wcCacheKnockout'].forEach(k => localStorage.removeItem(k));
