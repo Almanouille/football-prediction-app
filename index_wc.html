@@ -180,19 +180,26 @@
 
     <div class="loading-spinner" id="loadingSpinner"><div class="spinner"></div> Chargement des classements et résultats en direct...</div>
 
+    <div class="group-tabs" id="viewTabs">
+        <button class="group-tab" data-view="today">📅 Aujourd'hui</button>
+        <button class="group-tab" data-view="knockout">🏆 Phases finales</button>
+        <button class="group-tab" data-view="mine">📋 Mes pronostics</button>
+    </div>
+
     <div class="group-tabs" id="groupTabs"></div>
 
-    <div class="panel">
+    <div class="panel" id="standingsPanel">
         <h2 id="standingsTitle">📊 Classement</h2>
         <div class="table-wrap"><table id="standingsTable"></table></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="recentResultsPanel">
         <h2>📰 Derniers résultats du groupe</h2>
         <div id="recentResults"><p class="no-data">Aucun match joué pour le moment.</p></div>
     </div>
 
     <div id="matches"></div>
+    <div id="extraView" style="display:none;"></div>
 </div>
 
 <script>
@@ -204,13 +211,19 @@ let currentGroup = (localStorage.getItem('wcCurrentGroup') && GROUP_NAMES.includ
     : GROUP_NAMES[0];
 let liveGroups = null;
 let liveResults = null;
+let liveKnockout = null;
+let currentView = 'group';
 
 const apiUrlInput = document.getElementById('apiUrl');
+const viewTabs = document.getElementById('viewTabs');
 const groupTabs = document.getElementById('groupTabs');
+const standingsPanel = document.getElementById('standingsPanel');
+const recentResultsPanel = document.getElementById('recentResultsPanel');
 const standingsTitle = document.getElementById('standingsTitle');
 const standingsTable = document.getElementById('standingsTable');
 const recentResultsEl = document.getElementById('recentResults');
 const matchesContainer = document.getElementById('matches');
+const extraView = document.getElementById('extraView');
 
 function apiUrl() {
     return apiUrlInput.value.replace(/\/$/, '');
@@ -228,11 +241,23 @@ GROUP_NAMES.forEach(g => {
     btn.dataset.group = g;
     btn.addEventListener('click', () => {
         currentGroup = g;
+        currentView = 'group';
         localStorage.setItem('wcCurrentGroup', g);
-        document.querySelectorAll('.group-tab').forEach(b => b.classList.toggle('active', b.dataset.group === g));
-        renderGroup();
+        document.querySelectorAll('#viewTabs .group-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#groupTabs .group-tab').forEach(b => b.classList.toggle('active', b.dataset.group === g));
+        render();
     });
     groupTabs.appendChild(btn);
+});
+
+// --- Onglets de vue (aujourd'hui / phases finales / mes pronostics) ---
+viewTabs.querySelectorAll('.group-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentView = btn.dataset.view;
+        document.querySelectorAll('#groupTabs .group-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#viewTabs .group-tab').forEach(b => b.classList.toggle('active', b === btn));
+        render();
+    });
 });
 
 // --- Classement ---
@@ -275,6 +300,28 @@ function renderRecentResults() {
     `).join('');
 }
 
+// --- Carte de match (réutilisée pour groupe et "aujourd'hui") ---
+function buildMatchCard(match, showGroup) {
+    const idx = FIXTURES_DATA.fixtures.indexOf(match);
+    const date = new Date(match.date);
+    const dateStr = date.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const groupLabel = showGroup ? ` <span class="no-data">(Groupe ${match.group})</span>` : '';
+
+    const card = document.createElement('div');
+    card.className = 'match-card';
+    card.innerHTML = `
+        <div class="match-header">
+            <div>
+                <div class="match-teams"><img class="team-logo" src="${logoFor(match.home_id)}" alt="">${match.home} 🆚 ${match.away}<img class="team-logo" src="${logoFor(match.away_id)}" alt="">${groupLabel}</div>
+                <div class="match-meta">${dateStr} — ${match.venue}</div>
+            </div>
+            <button class="predict-btn" data-idx="${idx}">Prédire</button>
+        </div>
+        <div class="result" id="result-${idx}" style="display:none;"></div>
+    `;
+    return card;
+}
+
 // --- Matchs du groupe ---
 function renderMatches() {
     matchesContainer.innerHTML = '';
@@ -282,7 +329,6 @@ function renderMatches() {
 
     let lastRound = null;
     fixtures.forEach((match) => {
-        const idx = FIXTURES_DATA.fixtures.indexOf(match);
         if (match.round !== lastRound) {
             lastRound = match.round;
             const roundEl = document.createElement('div');
@@ -290,24 +336,88 @@ function renderMatches() {
             roundEl.textContent = lastRound;
             matchesContainer.appendChild(roundEl);
         }
-
-        const date = new Date(match.date);
-        const dateStr = date.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-
-        const card = document.createElement('div');
-        card.className = 'match-card';
-        card.innerHTML = `
-            <div class="match-header">
-                <div>
-                    <div class="match-teams"><img class="team-logo" src="${logoFor(match.home_id)}" alt="">${match.home} 🆚 ${match.away}<img class="team-logo" src="${logoFor(match.away_id)}" alt=""></div>
-                    <div class="match-meta">${dateStr} — ${match.venue}</div>
-                </div>
-                <button class="predict-btn" data-idx="${idx}">Prédire</button>
-            </div>
-            <div class="result" id="result-${idx}" style="display:none;"></div>
-        `;
-        matchesContainer.appendChild(card);
+        matchesContainer.appendChild(buildMatchCard(match, false));
     });
+}
+
+// --- Matchs du jour (tous groupes confondus) ---
+function renderToday() {
+    matchesContainer.innerHTML = '';
+    const today = new Date().toISOString().slice(0, 10);
+    const fixtures = FIXTURES_DATA.fixtures.filter(f => f.date.slice(0, 10) === today);
+
+    if (fixtures.length === 0) {
+        matchesContainer.innerHTML = '<p class="no-data">Aucun match prévu aujourd\'hui.</p>';
+        return;
+    }
+    fixtures.forEach(match => matchesContainer.appendChild(buildMatchCard(match, true)));
+}
+
+// --- Phases finales ---
+function renderKnockout() {
+    if (!liveKnockout) {
+        extraView.innerHTML = '<p class="no-data">Les phases à élimination directe seront disponibles une fois les données chargées.</p>';
+        return;
+    }
+    if (liveKnockout.length === 0) {
+        extraView.innerHTML = '<p class="no-data">Les phases à élimination directe ne sont pas encore programmées.</p>';
+        return;
+    }
+
+    let html = '';
+    let lastRound = null;
+    liveKnockout.forEach(m => {
+        if (m.round !== lastRound) {
+            lastRound = m.round;
+            html += `<div class="round-title">${lastRound}</div>`;
+        }
+        const date = new Date(m.date);
+        const dateStr = date.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const score = (m.home_goals !== null && m.away_goals !== null)
+            ? `<strong>${m.home_goals} - ${m.away_goals}</strong>`
+            : '🆚';
+        html += `
+            <div class="match-card">
+                <div class="match-header">
+                    <div>
+                        <div class="match-teams">${m.home} ${score} ${m.away}</div>
+                        <div class="match-meta">${dateStr} — ${m.venue || ''}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    extraView.innerHTML = html;
+}
+
+// --- Mes pronostics ---
+function renderMyPredictions() {
+    const preds = getPredictions();
+    const entries = Object.entries(preds);
+
+    if (entries.length === 0) {
+        extraView.innerHTML = '<p class="no-data">Tu n\'as encore fait aucun pronostic. Va dans un groupe et clique sur "Prédire" !</p>';
+        return;
+    }
+
+    const statusLabel = { home: 'Victoire ' , draw: 'Match nul', away: 'Victoire ' };
+
+    let html = '<div class="table-wrap"><table><tr><th style="text-align:left">Match</th><th>Pronostic</th><th>Résultat</th><th></th></tr>';
+    entries.slice().reverse().forEach(([matchId, p]) => {
+        const predictedText = p.predicted === 'draw' ? 'Match nul' : (p.predicted === 'home' ? p.homeTeam : p.awayTeam);
+        let statusIcon = '⏳';
+        if (p.evaluated) {
+            statusIcon = (p.predicted === p.actual) ? '✅' : '❌';
+        }
+        html += `<tr>
+            <td style="text-align:left">${p.homeTeam} 🆚 ${p.awayTeam}</td>
+            <td>${predictedText} (${p.home}% / ${p.draw}% / ${p.away}%)</td>
+            <td>${p.evaluated ? (p.actual === 'draw' ? 'Match nul' : (p.actual === 'home' ? p.homeTeam + ' gagne' : p.awayTeam + ' gagne')) : 'À venir'}</td>
+            <td>${statusIcon}</td>
+        </tr>`;
+    });
+    html += '</table></div>';
+    extraView.innerHTML = html;
 }
 
 function renderGroup() {
@@ -316,26 +426,62 @@ function renderGroup() {
     renderMatches();
 }
 
+// --- Affichage selon la vue active ---
+function render() {
+    if (currentView === 'group') {
+        standingsPanel.style.display = '';
+        recentResultsPanel.style.display = '';
+        matchesContainer.style.display = '';
+        extraView.style.display = 'none';
+        renderGroup();
+    } else if (currentView === 'today') {
+        standingsPanel.style.display = 'none';
+        recentResultsPanel.style.display = 'none';
+        matchesContainer.style.display = '';
+        extraView.style.display = 'none';
+        renderToday();
+    } else {
+        standingsPanel.style.display = 'none';
+        recentResultsPanel.style.display = 'none';
+        matchesContainer.style.display = 'none';
+        matchesContainer.innerHTML = '';
+        extraView.style.display = '';
+        if (currentView === 'knockout') renderKnockout();
+        else renderMyPredictions();
+    }
+}
+
+// --- Cache local des données live (5 minutes) ---
+const CACHE_TTL = 5 * 60 * 1000;
+
+async function fetchWithCache(endpoint, key) {
+    const cached = JSON.parse(localStorage.getItem(key) || 'null');
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        return cached.data;
+    }
+    const res = await fetch(`${apiUrl()}${endpoint}`);
+    if (!res.ok) throw new Error(`Erreur API (${res.status})`);
+    const data = await res.json();
+    localStorage.setItem(key, JSON.stringify({ timestamp: Date.now(), data }));
+    return data;
+}
+
 // --- Chargement des données live ---
 async function loadLiveData() {
     try {
-        const [groupsRes, resultsRes] = await Promise.all([
-            fetch(`${apiUrl()}/wc_groups`),
-            fetch(`${apiUrl()}/wc_results`)
+        const [groupsData, resultsData, knockoutData] = await Promise.all([
+            fetchWithCache('/wc_groups', 'wcCacheGroups'),
+            fetchWithCache('/wc_results', 'wcCacheResults'),
+            fetchWithCache('/wc_knockout', 'wcCacheKnockout')
         ]);
-        if (groupsRes.ok) {
-            const data = await groupsRes.json();
-            liveGroups = data.groups;
-        }
-        if (resultsRes.ok) {
-            const data = await resultsRes.json();
-            liveResults = data.results;
-        }
+        liveGroups = groupsData.groups;
+        liveResults = resultsData.results;
+        liveKnockout = knockoutData.knockout;
     } catch (err) {
         console.warn('Impossible de charger les données live, utilisation des données statiques.', err);
     }
     document.getElementById('loadingSpinner').style.display = 'none';
-    renderGroup();
+    render();
     evaluatePredictions();
 }
 
@@ -383,6 +529,7 @@ function evaluatePredictions() {
     if (changed) {
         localStorage.setItem('wcPredictions', JSON.stringify(preds));
         localStorage.setItem('wcConfidenceStats', JSON.stringify(stats));
+        if (currentView === 'mine') renderMyPredictions();
     }
     renderConfidence(stats);
 }
@@ -399,6 +546,18 @@ function renderConfidence(stats) {
 
 // --- Prédiction d'un match ---
 matchesContainer.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('share-btn')) {
+        const text = e.target.dataset.share;
+        try {
+            await navigator.clipboard.writeText(text);
+            const original = e.target.textContent;
+            e.target.textContent = '✅ Copié !';
+            setTimeout(() => { e.target.textContent = original; }, 1500);
+        } catch (err) {
+            alert(text);
+        }
+        return;
+    }
     if (!e.target.classList.contains('predict-btn')) return;
 
     const idx = e.target.dataset.idx;
@@ -453,6 +612,7 @@ matchesContainer.addEventListener('click', async (e) => {
                 <span>✈️ ${match.away}</span>
             </div>
             ${h2hHtml}
+            <button class="predict-btn share-btn" data-share="${match.home} 🆚 ${match.away} : ${home}% / ${draw}% / ${away}% (Nul) — Prédiction Coupe du Monde 2026">📤 Partager ma prédiction</button>
         `;
     } catch (err) {
         resultEl.innerHTML = `<p class="error">❌ ${err.message}. Vérifiez que l'API tourne sur l'URL configurée.</p>`;
@@ -462,9 +622,12 @@ matchesContainer.addEventListener('click', async (e) => {
     }
 });
 
-apiUrlInput.addEventListener('change', loadLiveData);
+apiUrlInput.addEventListener('change', () => {
+    ['wcCacheGroups', 'wcCacheResults', 'wcCacheKnockout'].forEach(k => localStorage.removeItem(k));
+    loadLiveData();
+});
 
-renderGroup();
+render();
 renderConfidence(getConfidenceStats());
 loadLiveData();
 </script>

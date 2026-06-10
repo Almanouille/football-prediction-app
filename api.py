@@ -516,6 +516,40 @@ def wc_results():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/wc_knockout', methods=['GET'])
+def wc_knockout():
+    """Matchs à élimination directe de la Coupe du Monde 2026 (huitièmes, quarts, demis, finale)"""
+    try:
+        data = make_api_request('fixtures', {'league': 1, 'season': 2026})
+        fixtures = data.get('response', []) if data else []
+
+        knockout = []
+        for f in fixtures:
+            round_name = f['league']['round']
+            if 'Group Stage' in round_name:
+                continue
+            knockout.append({
+                'id': f['fixture']['id'],
+                'date': f['fixture']['date'],
+                'venue': f['fixture']['venue'].get('city') or f['fixture']['venue'].get('name'),
+                'round': round_name,
+                'status': f['fixture']['status']['short'],
+                'home': f['teams']['home']['name'] or 'À déterminer',
+                'home_id': f['teams']['home']['id'],
+                'away': f['teams']['away']['name'] or 'À déterminer',
+                'away_id': f['teams']['away']['id'],
+                'home_goals': f['goals']['home'],
+                'away_goals': f['goals']['away']
+            })
+
+        return jsonify({'knockout': knockout})
+    except Exception as e:
+        print(f"❌ Erreur : {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint pour vérifier que l'API fonctionne"""
