@@ -497,6 +497,7 @@ def wc_results():
         results = []
         for f in fixtures:
             results.append({
+                'id': f['fixture']['id'],
                 'date': f['fixture']['date'][:10],
                 'round': f['league']['round'],
                 'home': f['teams']['home']['name'],

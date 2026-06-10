@@ -174,6 +174,10 @@
         <input type="text" id="apiUrl" value="https://football-prediction-app-1.onrender.com">
     </div>
 
+    <div class="panel" id="confidencePanel">
+        <div id="confidenceIndicator">🎯 Indice de confiance : pas encore de pronostics vérifiés.</div>
+    </div>
+
     <div class="loading-spinner" id="loadingSpinner"><div class="spinner"></div> Chargement des classements et résultats en direct...</div>
 
     <div class="group-tabs" id="groupTabs"></div>
@@ -332,6 +336,65 @@ async function loadLiveData() {
     }
     document.getElementById('loadingSpinner').style.display = 'none';
     renderGroup();
+    evaluatePredictions();
+}
+
+// --- Mémoire des prédictions & indice de confiance ---
+function getPredictions() {
+    return JSON.parse(localStorage.getItem('wcPredictions') || '{}');
+}
+
+function savePrediction(matchId, home, draw, away, homeTeam, awayTeam) {
+    const preds = getPredictions();
+    let predicted;
+    if (home >= draw && home >= away) predicted = 'home';
+    else if (away >= draw && away >= home) predicted = 'away';
+    else predicted = 'draw';
+    preds[matchId] = { home, draw, away, predicted, homeTeam, awayTeam, evaluated: false };
+    localStorage.setItem('wcPredictions', JSON.stringify(preds));
+}
+
+function getConfidenceStats() {
+    return JSON.parse(localStorage.getItem('wcConfidenceStats') || '{"correct":0,"total":0}');
+}
+
+function evaluatePredictions() {
+    if (!liveResults) return;
+    const preds = getPredictions();
+    const stats = getConfidenceStats();
+    let changed = false;
+
+    liveResults.forEach(r => {
+        const p = preds[r.id];
+        if (p && !p.evaluated) {
+            let actual;
+            if (r.home_goals > r.away_goals) actual = 'home';
+            else if (r.away_goals > r.home_goals) actual = 'away';
+            else actual = 'draw';
+
+            stats.total++;
+            if (p.predicted === actual) stats.correct++;
+            p.evaluated = true;
+            p.actual = actual;
+            changed = true;
+        }
+    });
+
+    if (changed) {
+        localStorage.setItem('wcPredictions', JSON.stringify(preds));
+        localStorage.setItem('wcConfidenceStats', JSON.stringify(stats));
+    }
+    renderConfidence(stats);
+}
+
+function renderConfidence(stats) {
+    const el = document.getElementById('confidenceIndicator');
+    if (!stats || stats.total === 0) {
+        el.textContent = '🎯 Indice de confiance : pas encore de pronostics vérifiés.';
+        return;
+    }
+    const pct = Math.round(stats.correct / stats.total * 100);
+    el.textContent = `🎯 Indice de confiance du site : ${pct}% (${stats.correct}/${stats.total} pronostics corrects)`;
 }
 
 // --- Prédiction d'un match ---
@@ -363,6 +426,8 @@ matchesContainer.addEventListener('click', async (e) => {
         const home = Math.round(data.homeWin);
         const draw = Math.round(data.draw);
         const away = Math.round(data.awayWin);
+
+        savePrediction(match.id, home, draw, away, match.home, match.away);
 
         let h2hHtml = '';
         if (data.h2h && data.h2h.length > 0) {
@@ -400,6 +465,7 @@ matchesContainer.addEventListener('click', async (e) => {
 apiUrlInput.addEventListener('change', loadLiveData);
 
 renderGroup();
+renderConfidence(getConfidenceStats());
 loadLiveData();
 </script>
 </body>
