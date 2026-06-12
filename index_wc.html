@@ -372,6 +372,11 @@ function buildMatchCard(match, showGroup) {
     const live = liveMatches[match.id];
     const liveBadge = live ? ` <span class="live-badge">🔴 ${live.home_goals}-${live.away_goals} (${live.elapsed}')</span>` : '';
 
+    const isPlayed = (liveResults || []).some(r => r.id === match.id) || !!live;
+    const predictBtn = isPlayed
+        ? `<button class="predict-btn" disabled title="Ce match a déjà eu lieu">Match terminé</button>`
+        : `<button class="predict-btn" data-idx="${idx}">Prédire</button>`;
+
     const card = document.createElement('div');
     card.className = 'match-card';
     card.innerHTML = `
@@ -380,7 +385,7 @@ function buildMatchCard(match, showGroup) {
                 <div class="match-teams"><img class="team-logo" src="${logoFor(match.home_id)}" alt="">${match.home} 🆚 ${match.away}<img class="team-logo" src="${logoFor(match.away_id)}" alt="">${groupLabel}${liveBadge}</div>
                 <div class="match-meta">${dateStr} — ${match.venue}</div>
             </div>
-            <button class="predict-btn" data-idx="${idx}">Prédire</button>
+            ${predictBtn}
         </div>
         <div class="result" id="result-${idx}" style="display:none;"></div>
     `;
