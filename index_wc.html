@@ -179,6 +179,12 @@
     }
     .predict-btn:hover { transform: scale(1.05); }
     .predict-btn:disabled { opacity: 0.6; cursor: wait; }
+    .final-score {
+        background: rgba(255,255,255,0.15);
+        padding: 8px 18px;
+        border-radius: 20px;
+        font-weight: bold;
+    }
     .result {
         margin-top: 14px;
         padding-top: 14px;
@@ -247,11 +253,6 @@
         <div class="table-wrap"><table id="standingsTable"></table></div>
     </div>
 
-    <div class="panel" id="recentResultsPanel">
-        <h2>📰 Derniers résultats du groupe</h2>
-        <div id="recentResults"><p class="no-data">Aucun match joué pour le moment.</p></div>
-    </div>
-
     <div id="matches"></div>
     <div id="extraView" style="display:none;"></div>
 </div>
@@ -278,7 +279,6 @@ const standingsPanel = document.getElementById('standingsPanel');
 const recentResultsPanel = document.getElementById('recentResultsPanel');
 const standingsTitle = document.getElementById('standingsTitle');
 const standingsTable = document.getElementById('standingsTable');
-const recentResultsEl = document.getElementById('recentResults');
 const matchesContainer = document.getElementById('matches');
 const extraView = document.getElementById('extraView');
 
@@ -344,23 +344,6 @@ function renderStandings() {
     standingsTable.innerHTML = html;
 }
 
-// --- Derniers résultats du groupe ---
-function renderRecentResults() {
-    const teamIds = new Set(FIXTURES_DATA.groups[currentGroup].map(t => t.id));
-    const results = (liveResults || []).filter(r => teamIds.has(r.home_id) && teamIds.has(r.away_id));
-
-    if (results.length === 0) {
-        recentResultsEl.innerHTML = '<p class="no-data">Aucun match joué pour le moment.</p>';
-        return;
-    }
-
-    recentResultsEl.innerHTML = results.map(r => `
-        <div class="recent-result">
-            <span class="team-name"><img class="team-logo" src="${logoFor(r.home_id)}" alt="">${r.home} ${r.home_goals} - ${r.away_goals} ${r.away}<img class="team-logo" src="${logoFor(r.away_id)}" alt=""></span>
-            <span>${r.date}</span>
-        </div>
-    `).join('');
-}
 
 // --- Carte de match (réutilisée pour groupe et "aujourd'hui") ---
 function buildMatchCard(match, showGroup) {
@@ -372,10 +355,12 @@ function buildMatchCard(match, showGroup) {
     const live = liveMatches[match.id];
     const liveBadge = live ? ` <span class="live-badge">🔴 ${live.home_goals}-${live.away_goals} (${live.elapsed}')</span>` : '';
 
-    const isPlayed = (liveResults || []).some(r => r.id === match.id) || !!live;
-    const predictBtn = isPlayed
-        ? `<button class="predict-btn" disabled title="Ce match a déjà eu lieu">Match terminé</button>`
-        : `<button class="predict-btn" data-idx="${idx}">Prédire</button>`;
+    const playedResult = (liveResults || []).find(r => r.id === match.id);
+    const predictBtn = playedResult
+        ? `<span class="final-score">Terminé : ${playedResult.home_goals} - ${playedResult.away_goals}</span>`
+        : live
+            ? `<span class="final-score">En cours</span>`
+            : `<button class="predict-btn" data-idx="${idx}">Prédire</button>`;
 
     const card = document.createElement('div');
     card.className = 'match-card';
@@ -593,7 +578,6 @@ function renderMyPredictions() {
 
 function renderGroup() {
     renderStandings();
-    renderRecentResults();
     renderMatches();
 }
 
