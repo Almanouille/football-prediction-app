@@ -374,7 +374,50 @@ function buildMatchCard(match, showGroup) {
         </div>
         <div class="result" id="result-${idx}" style="display:none;"></div>
     `;
+
+    // Si une prédiction a déjà été calculée pour ce match, on l'affiche directement
+    if (!playedResult && !live) {
+        const saved = getPredictions()[match.id];
+        if (saved) {
+            const resultEl = card.querySelector(`#result-${idx}`);
+            renderPredictionResult(resultEl, match, saved.home, saved.draw, saved.away, saved.h2h || []);
+            const btn = card.querySelector('.predict-btn');
+            if (btn) btn.textContent = 'Recalculer';
+        }
+    }
+
     return card;
+}
+
+// --- Affiche le résultat d'une prédiction (barres + h2h + partage) ---
+function renderPredictionResult(resultEl, match, home, draw, away, h2h) {
+    let h2hHtml = '';
+    if (h2h && h2h.length > 0) {
+        h2hHtml = `
+            <div class="h2h">
+                <div class="h2h-title">🤝 Confrontations précédentes</div>
+                ${h2h.map(m => `<div>${m.date} — ${m.home} ${m.home_goals} - ${m.away_goals} ${m.away} (${m.competition})</div>`).join('')}
+            </div>
+        `;
+    } else {
+        h2hHtml = `<div class="h2h"><div class="h2h-title">🤝 Confrontations précédentes</div><div class="no-data">Aucune confrontation récente trouvée.</div></div>`;
+    }
+
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = `
+        <div class="bars">
+            <div class="bar home" style="width:${home}%">${home >= 8 ? home + '%' : ''}</div>
+            <div class="bar draw" style="width:${draw}%">${draw >= 8 ? draw + '%' : ''}</div>
+            <div class="bar away" style="width:${away}%">${away >= 8 ? away + '%' : ''}</div>
+        </div>
+        <div class="result-labels">
+            <span>🏠 ${match.home}</span>
+            <span>🤝 Nul</span>
+            <span>✈️ ${match.away}</span>
+        </div>
+        ${h2hHtml}
+        <button class="predict-btn share-btn" data-share="${match.home} 🆚 ${match.away} : ${home}% / ${draw}% / ${away}% (Nul) — Prédiction Coupe du Monde 2026">📤 Partager ma prédiction</button>
+    `;
 }
 
 // --- Matchs du groupe ---
@@ -698,13 +741,14 @@ function getPredictions() {
     return JSON.parse(localStorage.getItem('wcPredictions') || '{}');
 }
 
-function savePrediction(matchId, home, draw, away, homeTeam, awayTeam) {
+function savePrediction(matchId, home, draw, away, homeTeam, awayTeam, h2h) {
     const preds = getPredictions();
     let predicted;
     if (home >= draw && home >= away) predicted = 'home';
     else if (away >= draw && away >= home) predicted = 'away';
     else predicted = 'draw';
-    preds[matchId] = { home, draw, away, predicted, homeTeam, awayTeam, evaluated: false };
+    const existing = preds[matchId] || {};
+    preds[matchId] = { ...existing, home, draw, away, predicted, homeTeam, awayTeam, h2h, evaluated: existing.evaluated || false };
     localStorage.setItem('wcPredictions', JSON.stringify(preds));
 }
 
@@ -813,34 +857,8 @@ async function handleResultClick(e) {
         const draw = Math.round(data.draw);
         const away = Math.round(data.awayWin);
 
-        savePrediction(match.id, home, draw, away, match.home, match.away);
-
-        let h2hHtml = '';
-        if (data.h2h && data.h2h.length > 0) {
-            h2hHtml = `
-                <div class="h2h">
-                    <div class="h2h-title">🤝 Confrontations précédentes</div>
-                    ${data.h2h.map(m => `<div>${m.date} — ${m.home} ${m.home_goals} - ${m.away_goals} ${m.away} (${m.competition})</div>`).join('')}
-                </div>
-            `;
-        } else {
-            h2hHtml = `<div class="h2h"><div class="h2h-title">🤝 Confrontations précédentes</div><div class="no-data">Aucune confrontation récente trouvée.</div></div>`;
-        }
-
-        resultEl.innerHTML = `
-            <div class="bars">
-                <div class="bar home" style="width:${home}%">${home >= 8 ? home + '%' : ''}</div>
-                <div class="bar draw" style="width:${draw}%">${draw >= 8 ? draw + '%' : ''}</div>
-                <div class="bar away" style="width:${away}%">${away >= 8 ? away + '%' : ''}</div>
-            </div>
-            <div class="result-labels">
-                <span>🏠 ${match.home}</span>
-                <span>🤝 Nul</span>
-                <span>✈️ ${match.away}</span>
-            </div>
-            ${h2hHtml}
-            <button class="predict-btn share-btn" data-share="${match.home} 🆚 ${match.away} : ${home}% / ${draw}% / ${away}% (Nul) — Prédiction Coupe du Monde 2026">📤 Partager ma prédiction</button>
-        `;
+        savePrediction(match.id, home, draw, away, match.home, match.away, data.h2h || []);
+        renderPredictionResult(resultEl, match, home, draw, away, data.h2h || []);
     } catch (err) {
         resultEl.innerHTML = `<p class="error">❌ ${err.message}. Vérifiez que l'API tourne sur l'URL configurée.</p>`;
     } finally {

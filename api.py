@@ -4,6 +4,7 @@ import joblib
 import requests
 import pandas as pd
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes depuis le frontend
@@ -387,14 +388,17 @@ def predict_wc():
 
         print(f"🏆 Prédiction CDM : équipe {home_team_id} vs équipe {away_team_id}")
 
-        home_form = get_national_team_form(home_team_id)
-        away_form = get_national_team_form(away_team_id)
-
-        # Historique des confrontations directes (2 derniers matchs)
-        h2h_data = make_api_request('fixtures/headtohead', {
-            'h2h': f"{home_team_id}-{away_team_id}",
-            'last': 2
-        })
+        # Les 3 appels à l'API externe sont indépendants : on les lance en parallèle
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            home_form_future = executor.submit(get_national_team_form, home_team_id)
+            away_form_future = executor.submit(get_national_team_form, away_team_id)
+            h2h_future = executor.submit(make_api_request, 'fixtures/headtohead', {
+                'h2h': f"{home_team_id}-{away_team_id}",
+                'last': 2
+            })
+            home_form = home_form_future.result()
+            away_form = away_form_future.result()
+            h2h_data = h2h_future.result()
         h2h_matches = []
         for f in (h2h_data.get('response', []) if h2h_data else []):
             h2h_matches.append({
