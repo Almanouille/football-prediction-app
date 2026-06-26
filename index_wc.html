@@ -276,7 +276,6 @@ const mainTabs = document.getElementById('mainTabs');
 const timeTabs = document.getElementById('timeTabs');
 const groupTabs = document.getElementById('groupTabs');
 const standingsPanel = document.getElementById('standingsPanel');
-const recentResultsPanel = document.getElementById('recentResultsPanel');
 const standingsTitle = document.getElementById('standingsTitle');
 const standingsTable = document.getElementById('standingsTable');
 const matchesContainer = document.getElementById('matches');
@@ -640,13 +639,13 @@ function render() {
         if (GROUP_NAMES.includes(subView)) {
             currentGroup = subView;
             standingsPanel.style.display = '';
-            recentResultsPanel.style.display = '';
+            
             matchesContainer.style.display = '';
             extraView.style.display = 'none';
             renderGroup();
         } else {
             standingsPanel.style.display = 'none';
-            recentResultsPanel.style.display = 'none';
+            
             matchesContainer.style.display = '';
             extraView.style.display = 'none';
             if (subView === 'upcoming') renderUpcoming();
@@ -658,7 +657,7 @@ function render() {
         timeTabs.style.display = '';
         groupTabs.style.display = 'none';
         standingsPanel.style.display = 'none';
-        recentResultsPanel.style.display = 'none';
+        
         matchesContainer.style.display = 'none';
         matchesContainer.innerHTML = '';
         extraView.style.display = '';
@@ -667,7 +666,7 @@ function render() {
         timeTabs.style.display = 'none';
         groupTabs.style.display = 'none';
         standingsPanel.style.display = 'none';
-        recentResultsPanel.style.display = 'none';
+        
         matchesContainer.style.display = 'none';
         matchesContainer.innerHTML = '';
         extraView.style.display = '';
